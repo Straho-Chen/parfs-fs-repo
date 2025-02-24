@@ -292,4 +292,39 @@ static inline u32 xor_random(void)
 	return v;
 }
 
+static inline int **cpu_topology(void)
+{
+	int i;
+	int **socket_cpu;
+	int *socket_index;
+	int cpus_per_socket = num_online_cpus() / num_online_nodes();
+	socket_cpu =
+		(int **)kmalloc(sizeof(int *) * num_online_nodes(), GFP_KERNEL);
+	socket_index =
+		(int *)kmalloc(sizeof(int) * num_online_nodes(), GFP_KERNEL);
+	for (i = 0; i < num_online_nodes(); i++) {
+		socket_cpu[i] = (int *)kmalloc(sizeof(int) * cpus_per_socket,
+					       GFP_KERNEL);
+		socket_index[i] = 0;
+	}
+	for_each_online_cpu(i) {
+		int node = cpu_to_node(i);
+		int *index = &socket_index[node];
+		socket_cpu[node][*index] = i;
+		(*index)++;
+	}
+	kfree(socket_index);
+
+	return socket_cpu;
+}
+
+static inline void cpu_topology_free(int **socket_cpu)
+{
+	int i;
+	for (i = 0; i < num_online_nodes(); i++) {
+		kfree(socket_cpu[i]);
+	}
+	kfree(socket_cpu);
+}
+
 #endif /* _LINUX_NOVA_DEF_H */

@@ -400,19 +400,19 @@ int nova_init_agents(int cpus, int sockets)
 	int ret = 0;
 
 	char name[255];
-#if NOVA_DELE_THREAD_BIND_TO_NUMA
-	struct cpumask *numa_cpumask;
-#endif
 	memset(nova_agent_tasks, 0,
 	       sizeof(struct task_struct *) * NOVA_MAX_AGENT);
 
 	cpus_per_socket = num_online_cpus() / num_online_nodes();
 	nova_num_of_agents = sockets * nova_dele_thrds;
 
+	// get cpu topology
+	int **socket_cpu = cpu_topology();
+
 	for (i = 0; i < sockets; i++) {
 		for (j = 0; j < nova_dele_thrds; j++) {
 			/* Use the first few cpus of each socket */
-			int target_cpu = i * cpus_per_socket + j;
+			int target_cpu = socket_cpu[i][j];
 			int index = i * nova_dele_thrds + j;
 			struct task_struct *task;
 
@@ -426,8 +426,8 @@ int nova_init_agents(int cpus, int sockets)
 			sprintf(name, "nova_agent_%d_cpu_%d", index,
 				target_cpu);
 
-			task = kthread_create(agent_func,
-					      &nova_agent_args[index], name);
+			task = kthread_create_on_node(
+				agent_func, &nova_agent_args[index], i, name);
 
 			if (IS_ERR(task)) {
 				ret = PTR_ERR(task);
@@ -436,20 +436,18 @@ int nova_init_agents(int cpus, int sockets)
 
 			nova_agent_tasks[index] = task;
 
-#if NOVA_DELE_THREAD_BIND_TO_NUMA
-			numa_cpumask = cpumask_of_node(i);
-			kthread_bind_mask(nova_agent_tasks[index],
-					  numa_cpumask);
-#else
 			kthread_bind(nova_agent_tasks[index], target_cpu);
-#endif
+
 			wake_up_process(nova_agent_tasks[index]);
 		}
 	}
 
+	cpu_topology_free(socket_cpu);
+
 	return 0;
 
 error:
+	cpu_topology_free(socket_cpu);
 	nova_agents_fini();
 
 	return -ENOMEM;
