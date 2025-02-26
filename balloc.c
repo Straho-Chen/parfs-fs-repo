@@ -1005,22 +1005,37 @@ alloc:
 	}
 	*blocknr = new_blocknr;
 
-	nova_dbg_verbose("Alloc %lu NVMM blocks 0x%lx\n", ret_blocks, *blocknr);
+	nova_dbg_verbose("Alloc %lu NVMM blocks %#lx\n", ret_blocks, *blocknr);
 	return ret_blocks / nova_get_numblocks(btype);
 }
 
-static int __nova_new_one_blocks(struct super_block *sb,
-				 struct nova_inode_info_header *sih,
-				 unsigned long *blocknr, unsigned short btype,
-				 int zero, enum alloc_type atype, int cpuid,
-				 int socket,
-				 enum nova_alloc_direction from_tail)
+int nova_new_one_data_block(struct super_block *sb,
+			    struct nova_inode_info_header *sih,
+			    unsigned long *blocknr, int zero, int cpu,
+			    enum nova_alloc_direction from_tail)
 {
 	int allocated;
-	allocated = nova_new_blocks(sb, blocknr, 1, btype, zero, atype, cpuid,
-				    socket, from_tail);
+	INIT_TIMING(alloc_time);
+
+	NOVA_START_TIMING(new_data_blocks_t, alloc_time);
+
+	allocated = nova_new_blocks(sb, blocknr, 1, sih->i_blk_type, zero, DATA,
+				    cpu, sih->nsocket, from_tail);
+
+	if (allocated < 0) {
+		nova_dbg_verbose("FAILED: Inode %lu, "
+				 "alloc %d data blocks %#lx\n",
+				 sih->ino, allocated, *blocknr);
+	} else {
+		nova_dbg_verbose("Inode %lu, "
+				 "alloc %d data blocks %#lx\n",
+				 sih->ino, allocated, *blocknr);
+	}
 
 	sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
+
+	NOVA_END_TIMING(new_data_blocks_t, alloc_time);
+
 	return allocated;
 }
 
@@ -1039,32 +1054,23 @@ int nova_new_data_blocks(struct super_block *sb,
 			 enum nova_alloc_direction from_tail)
 {
 	int allocated = 0;
-	int ret;
-	int i;
 	INIT_TIMING(alloc_time);
 
 	NOVA_START_TIMING(new_data_blocks_t, alloc_time);
-
-	for (i = 0; i < num; i++) {
-		ret = __nova_new_one_blocks(sb, sih, blocknr, sih->i_blk_type,
-					    zero, DATA, cpu, sih->nsocket,
-					    from_tail);
-
-		if (ret < 0) {
-			nova_dbg_verbose("FAILED: Inode %lu, start blk %lu, "
-					 "alloc %d data blocks %lu\n",
-					 sih->ino, start_blk, allocated,
-					 *blocknr);
-		} else {
-			allocated++;
-			nova_dbg_verbose("Inode %lu, start blk %lu, "
-					 "alloc %d data blocks %lu\n",
-					 sih->ino, start_blk, allocated,
-					 *blocknr);
-		}
-	}
-
+	allocated = nova_new_blocks(sb, blocknr, num, sih->i_blk_type, zero,
+				    DATA, cpu, sih->nsocket, from_tail);
+	sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
 	NOVA_END_TIMING(new_data_blocks_t, alloc_time);
+	if (allocated < 0) {
+		nova_dbg_verbose("FAILED: Inode %lu, "
+				 "alloc %d data blocks %#lx\n",
+				 sih->ino, allocated, *blocknr);
+	} else {
+		nova_dbg_verbose("Inode %lu, "
+				 "alloc %d data blocks %#lx to %#lx\n",
+				 sih->ino, allocated, *blocknr,
+				 *blocknr + allocated - 1);
+	}
 	return allocated;
 }
 
@@ -1089,13 +1095,14 @@ int nova_new_log_blocks(struct super_block *sb,
 	NOVA_START_TIMING(new_log_blocks_t, alloc_time);
 	allocated = nova_new_blocks(sb, blocknr, num, sih->i_blk_type, zero,
 				    LOG, cpu, socket, from_tail);
+	sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
 	NOVA_END_TIMING(new_log_blocks_t, alloc_time);
 	if (allocated < 0) {
 		nova_dbg_verbose("%s: ino %lu, failed to alloc %d log blocks",
 				 __func__, sih->ino, num);
 	} else {
 		nova_dbg_verbose(
-			"%s: ino %lu, alloc %d of %d log blocks %lu to %lu\n",
+			"%s: ino %lu, alloc %d of %d log blocks %#lx to %#lx\n",
 			__func__, sih->ino, allocated, num, *blocknr,
 			*blocknr + allocated - 1);
 	}

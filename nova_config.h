@@ -55,7 +55,7 @@
 #define NOVA_DEF_DELE_THREADS_PER_SOCKET 1
 
 /* When set, use nt store to write to memory */
-#define NOVA_NT_STORE 0
+#define NOVA_NT_STORE 1
 
 /* 2MB */
 #define NOVA_RING_SIZE (2 * 1024 * 1024)

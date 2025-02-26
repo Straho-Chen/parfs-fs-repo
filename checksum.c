@@ -895,7 +895,7 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 {
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
-	unsigned long offset = newsize & (sb->s_blocksize - 1);
+	unsigned long offset = newsize & (nova_inode_blk_size(sih) - 1);
 	unsigned long pgoff, length;
 	u64 nvmm;
 	char *nvmm_addr, *strp_addr, *tail_strp = NULL;
@@ -904,8 +904,8 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 	unsigned int strp_index, strp_offset;
 	unsigned long strps, strp_nr;
 
-	length = sb->s_blocksize - offset;
-	pgoff = newsize >> sb->s_blocksize_bits;
+	length = nova_inode_blk_size(sih) - offset;
+	pgoff = newsize >> nova_inode_blk_shift(sih);
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
 	if (nvmm == 0)

@@ -65,19 +65,22 @@
 
 /* NOVA supported data blocks */
 #define NOVA_BLOCK_TYPE_4K 0
-#define NOVA_BLOCK_TYPE_2M 1
-#define NOVA_BLOCK_TYPE_1G 2
-#define NOVA_BLOCK_TYPE_MAX 3
+#define NOVA_BLOCK_TYPE_32K 1
+#define NOVA_BLOCK_TYPE_2M 2
+#define NOVA_BLOCK_TYPE_1G 3
+#define NOVA_BLOCK_TYPE_MAX 4
 
 #define META_BLK_SHIFT 9
 
 /*
  * Play with this knob to change the default block type.
- * By changing the NOVA_DEFAULT_BLOCK_TYPE to 2M or 1G,
+ * By changing the NOVA_DEFAULT_BLOCK_TYPE to 32K/2M/1G,
  * we should get pretty good coverage in testing.
  */
-#define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_4K
+#define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_32K
+// #define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_4K
 
+#define PAGE_SHIFT_32K 15
 #define PAGE_SHIFT_2M 21
 #define PAGE_SHIFT_1G 30
 

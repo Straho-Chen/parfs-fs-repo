@@ -94,15 +94,16 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	size_t offset, eblk_offset;
 	unsigned long start_blk, end_blk, num_blocks;
 	struct nova_file_write_entry *entry;
+	int data_bits = nova_inode_blk_shift(sih);
+	int data_block_size = nova_inode_blk_size(sih);
 	INIT_TIMING(partial_time);
 	int ret = 0;
 
 	NOVA_START_TIMING(partial_block_t, partial_time);
-	offset = pos & (sb->s_blocksize - 1);
-	num_blocks = ((count + offset - 1) >> sb->s_blocksize_bits) + 1;
 	/* offset in the actual block size block */
-	offset = pos & (nova_inode_blk_size(sih) - 1);
-	start_blk = pos >> sb->s_blocksize_bits;
+	offset = pos & (data_block_size - 1);
+	num_blocks = ((count + offset - 1) >> data_bits) + 1;
+	start_blk = pos >> data_bits;
 	end_blk = start_blk + num_blocks - 1;
 
 	nova_dbg_verbose("%s: %lu blocks\n", __func__, num_blocks);
@@ -121,9 +122,8 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 			return ret;
 	}
 
-	kmem = (void *)((char *)kmem +
-			((num_blocks - 1) << sb->s_blocksize_bits));
-	eblk_offset = (pos + count) & (nova_inode_blk_size(sih) - 1);
+	kmem = (void *)((char *)kmem + ((num_blocks - 1) << data_bits));
+	eblk_offset = (pos + count) & (data_block_size - 1);
 	nova_dbg_verbose("%s: end offset %lu, end blk %lu %p\n", __func__,
 			 eblk_offset, end_blk, kmem);
 	if (eblk_offset != 0) {
@@ -132,7 +132,7 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		/* copy [end, blk_end] from old block(or fill 0) to new cow block */
 		ret = nova_handle_partial_block(sb, sih, entry, end_blk,
 						eblk_offset,
-						sb->s_blocksize - eblk_offset,
+						data_block_size - eblk_offset,
 						kmem, issued_cnt,
 						completed_cnt);
 		if (ret < 0)
@@ -274,8 +274,8 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 	struct nova_inode_info_header *sih = &si->header;
 	size_t offset, eblk_offset, bytes, left;
 	unsigned long start_blk, end_blk, num_blocks, nvmm, nvmmoff;
-	unsigned long blocksize = sb->s_blocksize;
-	unsigned int blocksize_bits = sb->s_blocksize_bits;
+	unsigned long blocksize = nova_inode_blk_size(sih);
+	unsigned int blocksize_bits = nova_inode_blk_shift(sih);
 	u8 *blockbuf, *blockptr;
 	struct nova_file_write_entry *entry;
 	struct nova_file_write_entry *entryc, entry_copy;
@@ -623,7 +623,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	u32 time;
 	ssize_t ret;
 	unsigned long irq_flags = 0;
-	int blocks_per_strip = 0;
+	int blocksize_mask;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -661,8 +661,10 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		goto out;
 	}
 
-	offset = pos & (sb->s_blocksize - 1);
-	num_blocks = ((count + offset - 1) >> sb->s_blocksize_bits) + 1;
+	data_bits = nova_inode_blk_shift(sih);
+	blocksize_mask = nova_inode_blk_size(sih) - 1;
+	offset = pos & blocksize_mask;
+	num_blocks = ((count + offset - 1) >> data_bits) + 1;
 	total_blocks = num_blocks;
 
 	/* offset in the actual block size block */
@@ -676,24 +678,26 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 	epoch_id = nova_get_epoch_id(sb);
 
-	blocks_per_strip = nova_get_numblocks(pi->i_blk_type);
-
 	nova_dbg_verbose(
-		"%s: epoch_id %llu, inode %lu, offset %lld, count %lu\n",
-		__func__, epoch_id, inode->i_ino, pos, count);
+		"%s: epoch_id %llu, inode %lu, offset %lld, count %lu, alloc blocks: %ld\n",
+		__func__, epoch_id, inode->i_ino, pos, count, num_blocks);
 	update.tail = sih->log_tail;
 	update.alter_tail = sih->alter_log_tail;
 
 	while (num_blocks > 0) {
 		hole_fill = false;
-		offset = pos & (nova_inode_blk_size(sih) - 1);
-		start_blk = pos >> sb->s_blocksize_bits;
+		offset = pos & blocksize_mask;
+		start_blk = pos >> data_bits;
 
-		ent_blks = nova_check_existing_entry(
-			sb, inode, blocks_per_strip, start_blk, &entry,
-			&entry_copy, 1, epoch_id, &inplace, 1);
+		ent_blks = nova_check_existing_entry(sb, inode, 1, start_blk,
+						     &entry, &entry_copy, 1,
+						     epoch_id, &inplace, 1);
 
 		entryc = (metadata_csum == 0) ? entry : &entry_copy;
+
+		nova_dbg_verbose(
+			"%s: offset: %ld start_blk: %ld ent_blks: %ld num_blocks: %ld\n",
+			__func__, offset, start_blk, ent_blks, num_blocks);
 
 		if (entry && inplace) {
 			/* We can do inplace write. Find contiguous blocks */
@@ -703,12 +707,11 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				nova_set_write_entry_updating(sb, entry, 1);
 		} else {
 			/* Allocate blocks to fill hole */
-			allocated = nova_new_data_blocks(sb, sih, &blocknr,
-							 start_blk, ent_blks,
-							 ALLOC_NO_INIT, ANY_CPU,
-							 ALLOC_FROM_HEAD);
-
-			nova_dbg_verbose("%s: alloc %d blocks @ %lu\n",
+			allocated = nova_new_one_data_block(sb, sih, &blocknr,
+							    ALLOC_NO_INIT,
+							    ANY_CPU,
+							    ALLOC_FROM_HEAD);
+			nova_dbg_verbose("%s: alloc %d blocks @ %#lx\n",
 					 __func__, allocated, blocknr);
 
 			if (allocated <= 0) {
@@ -723,7 +726,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 
 		step++;
-		bytes = sb->s_blocksize * allocated - offset;
+		bytes = nova_inode_blk_size(sih) * allocated - offset;
 		if (bytes > count)
 			bytes = count;
 
@@ -841,7 +844,6 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 	}
 
-	data_bits = blk_type_to_shift[sih->i_blk_type];
 	sih->i_blocks += (new_blocks << (data_bits - sb->s_blocksize_bits));
 
 	inode->i_blocks = sih->i_blocks;
@@ -868,9 +870,6 @@ out:
 
 	NOVA_END_TIMING(inplace_write_t, inplace_write_time);
 	NOVA_STATS_ADD(inplace_write_bytes, written);
-	nova_dbg_verbose(
-		"%s: finished epoch_id %llu, inode %lu, offset %lld, count %lu\n",
-		__func__, epoch_id, inode->i_ino, pos, count);
 	return ret;
 }
 
@@ -1072,6 +1071,7 @@ out1:
 	return num_blocks;
 }
 
+// TODO: buggy
 int nova_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 		     unsigned int flags, struct iomap *iomap,
 		     struct iomap *srcmap, bool taking_lock)

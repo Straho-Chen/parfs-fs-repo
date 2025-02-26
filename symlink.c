@@ -51,7 +51,7 @@ int nova_block_symlink(struct super_block *sb, struct nova_inode *pi,
 	}
 
 	/* First copy name to name block */
-	block = nova_get_block_off(sb, name_blocknr, NOVA_BLOCK_TYPE_4K);
+	block = nova_get_block_off(sb, name_blocknr, sih->i_blk_type);
 	blockp = (char *)nova_get_virt_addr_from_offset(sb, block);
 
 	nova_memunlock_block(sb, blockp, &irq_flags);

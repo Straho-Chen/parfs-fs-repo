@@ -25,8 +25,8 @@
 #include <linux/ratelimit.h>
 #include "nova.h"
 
-unsigned int blk_type_to_shift[NOVA_BLOCK_TYPE_MAX] = { 12, 21, 30 };
-uint32_t blk_type_to_size[NOVA_BLOCK_TYPE_MAX] = { 0x1000, 0x200000,
+unsigned int blk_type_to_shift[NOVA_BLOCK_TYPE_MAX] = { 12, 15, 21, 30 };
+uint32_t blk_type_to_size[NOVA_BLOCK_TYPE_MAX] = { 0x1000, 0x8000, 0x200000,
 						   0x40000000 };
 
 int nova_init_inode_inuse_list(struct super_block *sb)

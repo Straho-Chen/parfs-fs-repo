@@ -553,6 +553,8 @@ static inline unsigned long nova_get_numblocks(unsigned short btype)
 
 	if (btype == NOVA_BLOCK_TYPE_4K) {
 		num_blocks = 1;
+	} else if (btype == NOVA_BLOCK_TYPE_32K) {
+		num_blocks = 8;
 	} else if (btype == NOVA_BLOCK_TYPE_2M) {
 		num_blocks = 512;
 	} else {

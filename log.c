@@ -203,7 +203,9 @@ void nova_clear_last_page_tail(struct super_block *sb, struct inode *inode,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
-	unsigned long offset = newsize & (sb->s_blocksize - 1);
+	int blocksize = nova_inode_blk_size(sih);
+	int data_bits = nova_inode_blk_shift(sih);
+	unsigned long offset = newsize & (blocksize - 1);
 	unsigned long pgoff, length;
 	u64 nvmm;
 	char *nvmm_addr;
@@ -212,8 +214,8 @@ void nova_clear_last_page_tail(struct super_block *sb, struct inode *inode,
 	if (offset == 0 || newsize > inode->i_size)
 		return;
 
-	length = sb->s_blocksize - offset;
-	pgoff = newsize >> sb->s_blocksize_bits;
+	length = blocksize - offset;
+	pgoff = newsize >> data_bits;
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
 	if (nvmm == 0)
@@ -1077,8 +1079,9 @@ int nova_update_alter_pages(struct super_block *sb, struct nova_inode *pi,
 		return 0;
 
 	while (curr && alter_curr) {
-		nova_dbg_verbose("%s: update ino: %lld page: %#llx alter: %#llx\n",
-			 __func__, pi->nova_ino, curr, alter_curr);
+		nova_dbg_verbose(
+			"%s: update ino: %lld page: %#llx alter: %#llx\n",
+			__func__, pi->nova_ino, curr, alter_curr);
 		nova_set_alter_page_address(sb, curr, alter_curr);
 		curr = next_log_page(sb, curr);
 		alter_curr = next_log_page(sb, alter_curr);

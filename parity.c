@@ -150,7 +150,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	size_t csum_size = NOVA_DATA_CSUM_LEN;
 	size_t strp_size = NOVA_STRIPE_SIZE;
 	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned long strp_nr, blockoff, blocksize = sb->s_blocksize;
+	unsigned long strp_nr, blockoff, blocksize = nova_inode_blk_size(sih);
 	void *nvmmptr, *nvmmptr1;
 	u32 crc[8];
 	u64 qwd[8], *parity = NULL;
@@ -385,13 +385,13 @@ int nova_update_truncated_block_parity(struct super_block *sb,
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
 	unsigned long pgoff, blocknr;
-	unsigned long blocksize = sb->s_blocksize;
+	unsigned long blocksize = nova_inode_blk_size(sih);
 	u64 nvmm;
 	char *nvmm_addr, *block;
 	u8 btype = sih->i_blk_type;
 	int ret = 0;
 
-	pgoff = newsize >> sb->s_blocksize_bits;
+	pgoff = newsize >> nova_inode_blk_shift(sih);
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
 	if (nvmm == 0)
