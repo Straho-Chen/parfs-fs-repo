@@ -50,7 +50,7 @@ nova_update_journal_entry_csum(struct super_block *sb,
 {
 	u32 crc = 0;
 
-	crc = nova_crc32c(
+	crc = nova_calc_csum32(
 		~0, (__u8 *)entry,
 		(sizeof(struct nova_lite_journal_entry) - sizeof(__le32)));
 
@@ -64,7 +64,7 @@ nova_check_entry_integrity(struct super_block *sb,
 {
 	u32 crc = 0;
 
-	crc = nova_crc32c(
+	crc = nova_calc_csum32(
 		~0, (__u8 *)entry,
 		(sizeof(struct nova_lite_journal_entry) - sizeof(__le32)));
 

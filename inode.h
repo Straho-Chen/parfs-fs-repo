@@ -179,8 +179,8 @@ static inline int nova_update_inode_checksum(struct nova_inode *pi)
 	if (metadata_csum == 0)
 		goto persist;
 
-	crc = nova_crc32c(~0, (__u8 *)pi,
-			  (sizeof(struct nova_inode) - sizeof(__le32)));
+	crc = nova_calc_csum32(~0, (__u8 *)pi,
+			       (sizeof(struct nova_inode) - sizeof(__le32)));
 
 	pi->csum = crc;
 persist:
@@ -195,8 +195,8 @@ static inline int nova_check_inode_checksum(struct nova_inode *pi)
 	if (metadata_csum == 0)
 		return 0;
 
-	crc = nova_crc32c(~0, (__u8 *)pi,
-			  (sizeof(struct nova_inode) - sizeof(__le32)));
+	crc = nova_calc_csum32(~0, (__u8 *)pi,
+			       (sizeof(struct nova_inode) - sizeof(__le32)));
 
 	if (pi->csum == cpu_to_le32(crc))
 		return 0;

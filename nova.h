@@ -42,6 +42,7 @@
 #include <linux/uio.h>
 #include <linux/iomap.h>
 #include <linux/crc32c.h>
+#include <linux/xxhash.h>
 #include <asm/tlbflush.h>
 #include <linux/version.h>
 #include <linux/pfn_t.h>
@@ -120,6 +121,24 @@ static inline u32 nova_crc32c(u32 crc, const u8 *data, size_t len)
 	}
 
 	return csum;
+}
+
+static inline u32 nova_calc_csum32(u32 seed, u8 *data, size_t len)
+{
+#if NOVA_XXHASH_CSUM
+	return xxh32(data, len, seed);
+#else
+	return nova_crc32c(seed, data, len);
+#endif
+}
+
+static inline void nova_calc_csum_qword(u64 *qword, u64 *crc)
+{
+#if NOVA_XXHASH_CSUM
+	*crc = xxh64(qword, sizeof(u64), *crc);
+#else
+	nova_crc32c_qword(*qword, *crc);
+#endif
 }
 
 /* uses CPU instructions to atomically write up to 8 bytes */
@@ -377,13 +396,13 @@ struct vma_item {
 
 static inline u32 nova_calculate_range_node_csum(struct nova_range_node *node)
 {
-	u32 crc;
+	u32 csum;
 
-	crc = nova_crc32c(~0, (__u8 *)&node->vma,
-			  (unsigned long)&node->csum -
-				  (unsigned long)&node->vma);
+	csum = nova_calc_csum32(~0, (__u8 *)&node->vma,
+				(unsigned long)&node->csum -
+					(unsigned long)&node->vma);
 
-	return crc;
+	return csum;
 }
 
 static inline int nova_update_range_node_checksum(struct nova_range_node *node)

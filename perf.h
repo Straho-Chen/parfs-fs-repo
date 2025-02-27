@@ -50,6 +50,7 @@ enum checksum_call_id {
 	nd_fletcher64_id,
 	libcrc32c_id,
 	nova_crc32c_id,
+	libxxh32_id,
 	plain_xor64_id,
 	NUM_CHECKSUM_CALLS
 };

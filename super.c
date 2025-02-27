@@ -403,13 +403,13 @@ static bool nova_check_size(struct super_block *sb, unsigned long size)
 static inline int nova_check_super_checksum(struct super_block *sb)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
-	u32 crc = 0;
+	u32 csum = 0;
 
-	// Check CRC but skip c_sum, which is the 4 bytes at the beginning
-	crc = nova_crc32c(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
-			  sizeof(struct nova_super_block) - sizeof(__le32));
+	csum = nova_calc_csum32(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
+				sizeof(struct nova_super_block) -
+					sizeof(__le32));
 
-	if (sbi->nova_sb->s_sum == cpu_to_le32(crc))
+	if (sbi->nova_sb->s_sum == cpu_to_le32(csum))
 		return 0;
 	else
 		return 1;
@@ -441,13 +441,14 @@ inline void nova_sync_super(struct super_block *sb)
 inline void nova_update_super_crc(struct super_block *sb)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
-	u32 crc = 0;
+	u32 csum = 0;
 
 	sbi->nova_sb->s_wtime = cpu_to_le32(ktime_get_seconds());
 	sbi->nova_sb->s_sum = 0;
-	crc = nova_crc32c(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
-			  sizeof(struct nova_super_block) - sizeof(__le32));
-	sbi->nova_sb->s_sum = cpu_to_le32(crc);
+	csum = nova_calc_csum32(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
+				sizeof(struct nova_super_block) -
+					sizeof(__le32));
+	sbi->nova_sb->s_sum = cpu_to_le32(csum);
 }
 
 static inline void nova_update_mount_time(struct super_block *sb)
@@ -755,8 +756,8 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	for (i = 0; i < 8; i++)
-		sbi->zero_csum[i] = nova_crc32c(NOVA_INIT_CSUM,
-						sbi->zeroed_page, strp_size);
+		sbi->zero_csum[i] = nova_calc_csum32(
+			NOVA_INIT_CSUM, sbi->zeroed_page, strp_size);
 	sbi->zero_parity = kzalloc(strp_size, GFP_KERNEL);
 
 	if (!sbi->zero_parity) {

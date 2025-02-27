@@ -281,6 +281,12 @@ void nova_init_file_write_entry(struct super_block *sb,
 	entry->size = file_size;
 }
 
+// TODO: procect time too long
+/*
+ * perf:
+ * 1. zero-copy: directly use user buffer, not copy to kernel buffer
+ * 2. replace crc32 with xxhash
+ */
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 			   loff_t pos, size_t count, const char __user *buf,
 			   unsigned long blocknr, bool inplace)

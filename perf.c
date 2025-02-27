@@ -130,6 +130,14 @@ static u64 nova_crc32c_call(u64 init, char *data, size_t size)
 	return (u64)crc;
 }
 
+static u64 libxxh32_call(u64 init, char *data, size_t size)
+{
+	u32 csum = (u32)init;
+
+	csum = xxh32(data, size, csum);
+	return (u64)csum;
+}
+
 static u64 plain_xor64_call(u64 init, char *data, size_t size)
 {
 	u64 csum = init;
@@ -152,6 +160,7 @@ static const checksum_call_t checksum_calls[] = {
 	{ "nd_fletcher64", nd_fletcher64_call },
 	{ "libcrc32c", libcrc32c_call },
 	{ "nova_crc32c", nova_crc32c_call },
+	{ "libxxh32", libxxh32_call },
 	{ "plain_xor64", plain_xor64_call }
 };
 
@@ -215,14 +224,14 @@ static u64 nova_block_csum_parity_call(char **data, char *parity, size_t size,
 		qwd[7] = *((u64 *)(block + 7 * strp_size));
 
 		// if (data_csum > 0 && unroll_csum) {
-		nova_crc32c_qword(qwd[0], acc[0]);
-		nova_crc32c_qword(qwd[1], acc[1]);
-		nova_crc32c_qword(qwd[2], acc[2]);
-		nova_crc32c_qword(qwd[3], acc[3]);
-		nova_crc32c_qword(qwd[4], acc[4]);
-		nova_crc32c_qword(qwd[5], acc[5]);
-		nova_crc32c_qword(qwd[6], acc[6]);
-		nova_crc32c_qword(qwd[7], acc[7]);
+		nova_calc_csum_qword(&qwd[0], &acc[0]);
+		nova_calc_csum_qword(&qwd[1], &acc[1]);
+		nova_calc_csum_qword(&qwd[2], &acc[2]);
+		nova_calc_csum_qword(&qwd[3], &acc[3]);
+		nova_calc_csum_qword(&qwd[4], &acc[4]);
+		nova_calc_csum_qword(&qwd[5], &acc[5]);
+		nova_calc_csum_qword(&qwd[6], &acc[6]);
+		nova_calc_csum_qword(&qwd[7], &acc[7]);
 		// }
 
 		// if (data_parity > 0) {

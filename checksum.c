@@ -141,11 +141,11 @@ static u32 nova_calc_entry_csum(void *entry)
 
 	if (entry_len > 0) {
 		check_len = ((u8 *)csum_addr) - ((u8 *)entry);
-		csum = nova_crc32c(NOVA_INIT_CSUM, entry, check_len);
+		csum = nova_calc_csum32(NOVA_INIT_CSUM, entry, check_len);
 		check_len = entry_len - (check_len + NOVA_META_CSUM_LEN);
 		if (check_len > 0) {
 			remain = ((u8 *)csum_addr) + NOVA_META_CSUM_LEN;
-			csum = nova_crc32c(csum, remain, check_len);
+			csum = nova_calc_csum32(csum, remain, check_len);
 		}
 
 		if (check_len < 0) {
@@ -592,6 +592,7 @@ fail:
 	return -EIO;
 }
 
+// TODO: replace with xxhash
 static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 				   unsigned long strp_nr, u8 *strp_ptr,
 				   int zero)
@@ -605,6 +606,10 @@ static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 	void *src_addr;
 	unsigned long irq_flags = 0;
 
+	/*
+	 * 4K aligned data page has 8 stripes
+	 * calculate checksum for 8 stripes at a time
+	 */
 	while (strps >= 8) {
 		if (zero) {
 			src_addr = sbi->zero_csum;
@@ -612,20 +617,20 @@ static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 		}
 
 		crc[0] = cpu_to_le32(
-			nova_crc32c(NOVA_INIT_CSUM, strp_ptr, strp_size));
-		crc[1] = cpu_to_le32(nova_crc32c(
+			nova_calc_csum32(NOVA_INIT_CSUM, strp_ptr, strp_size));
+		crc[1] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size, strp_size));
-		crc[2] = cpu_to_le32(nova_crc32c(
+		crc[2] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 2, strp_size));
-		crc[3] = cpu_to_le32(nova_crc32c(
+		crc[3] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 3, strp_size));
-		crc[4] = cpu_to_le32(nova_crc32c(
+		crc[4] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 4, strp_size));
-		crc[5] = cpu_to_le32(nova_crc32c(
+		crc[5] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 5, strp_size));
-		crc[6] = cpu_to_le32(nova_crc32c(
+		crc[6] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 6, strp_size));
-		crc[7] = cpu_to_le32(nova_crc32c(
+		crc[7] = cpu_to_le32(nova_calc_csum32(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 7, strp_size));
 
 		src_addr = crc;
@@ -658,11 +663,15 @@ copy:
 			strp_ptr += strp_size * 8;
 	}
 
+	/*
+	 * checksum for the remaining stripes
+	 */
 	for (strp = 0; strp < strps; strp++) {
 		if (zero)
 			csum = sbi->zero_csum[0];
 		else
-			csum = nova_crc32c(NOVA_INIT_CSUM, strp_ptr, strp_size);
+			csum = nova_calc_csum32(NOVA_INIT_CSUM, strp_ptr,
+						strp_size);
 
 		csum = cpu_to_le32(csum);
 		csum_addr = nova_get_data_csum_addr(sb, strp_nr, 0);
@@ -829,8 +838,8 @@ bool nova_verify_data_csum(struct super_block *sb,
 				 __func__);
 			match = false;
 		} else {
-			csum_calc =
-				nova_crc32c(NOVA_INIT_CSUM, strip, strp_size);
+			csum_calc = nova_calc_csum32(NOVA_INIT_CSUM, strip,
+						     strp_size);
 			match = (csum_calc == csum_nvmm0) ||
 				(csum_calc == csum_nvmm1);
 		}

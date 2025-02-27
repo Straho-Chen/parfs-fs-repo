@@ -140,7 +140,6 @@ int nova_update_pgoff_parity(struct super_block *sb,
  * whole block writes.
  */
 // TODO: replace by xxhash
-#define CSUM0 NOVA_INIT_CSUM
 int nova_update_block_csum_parity(struct super_block *sb,
 				  struct nova_inode_info_header *sih, u8 *block,
 				  unsigned long blocknr, size_t offset,
@@ -154,7 +153,9 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	void *nvmmptr, *nvmmptr1;
 	u32 crc[8];
 	u64 qwd[8], *parity = NULL;
-	u64 acc[8] = { CSUM0, CSUM0, CSUM0, CSUM0, CSUM0, CSUM0, CSUM0, CSUM0 };
+	u64 acc[8] = { NOVA_INIT_CSUM, NOVA_INIT_CSUM, NOVA_INIT_CSUM,
+		       NOVA_INIT_CSUM, NOVA_INIT_CSUM, NOVA_INIT_CSUM,
+		       NOVA_INIT_CSUM, NOVA_INIT_CSUM };
 	bool unroll_csum = false, unroll_parity = false;
 	int ret = 0;
 	unsigned long irq_flags = 0;
@@ -196,14 +197,14 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			qwd[7] = *((u64 *)(block + 7 * strp_size));
 
 			if (data_csum > 0 && unroll_csum) {
-				nova_crc32c_qword(qwd[0], acc[0]);
-				nova_crc32c_qword(qwd[1], acc[1]);
-				nova_crc32c_qword(qwd[2], acc[2]);
-				nova_crc32c_qword(qwd[3], acc[3]);
-				nova_crc32c_qword(qwd[4], acc[4]);
-				nova_crc32c_qword(qwd[5], acc[5]);
-				nova_crc32c_qword(qwd[6], acc[6]);
-				nova_crc32c_qword(qwd[7], acc[7]);
+				nova_calc_csum_qword(&qwd[0], &acc[0]);
+				nova_calc_csum_qword(&qwd[1], &acc[1]);
+				nova_calc_csum_qword(&qwd[2], &acc[2]);
+				nova_calc_csum_qword(&qwd[3], &acc[3]);
+				nova_calc_csum_qword(&qwd[4], &acc[4]);
+				nova_calc_csum_qword(&qwd[5], &acc[5]);
+				nova_calc_csum_qword(&qwd[6], &acc[6]);
+				nova_calc_csum_qword(&qwd[7], &acc[7]);
 			}
 
 			if (data_parity > 0) {
@@ -337,7 +338,7 @@ int nova_restore_data(struct super_block *sb, unsigned long blocknr,
 		 */
 		memcpy(strip, badstrip, i);
 
-		csum_calc = nova_crc32c(NOVA_INIT_CSUM, strip, strp_size);
+		csum_calc = nova_calc_csum32(NOVA_INIT_CSUM, strip, strp_size);
 		if (csum_calc == csum0 || csum_calc == csum1) {
 			success = true;
 			break;
