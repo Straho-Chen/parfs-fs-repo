@@ -520,6 +520,7 @@ static inline unsigned long get_nvmm(struct super_block *sb,
 }
 
 bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc);
+bool nova_get_entry_copy(struct super_block *sb, void *entry, void *entryc);
 
 static inline u64 nova_find_nvmm_block(struct super_block *sb,
 				       struct nova_inode_info_header *sih,

@@ -182,17 +182,20 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 	if (tasks_index <= 0)
 		goto out;
 
-	nova_dbg_delegation("kaddr: %lx, uaddr: %lx, bytes: %ld", kaddr, uaddr,
-			    bytes);
+	nova_dbg_delegation("%s: kaddr: %lx, uaddr: %lx, bytes: %ld", __func__,
+			    kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_r_t, memcpy_time);
+	// TODO: task array is filled with 4K read (generally), because user phy addr is not contiguous.
+	// TODO: shall we do some remapping here to aligned to 32K?
 	for (i = 0; i < tasks_index; i++) {
 		if (zero) {
 			memset((void *)tasks[i].kuaddr, 0, tasks[i].size);
 		} else {
 			nova_dbg_delegation(
-				"uaddr: %lx, size: %ld, kaddr: %lx\n",
-				tasks[i].kuaddr, tasks[i].size, kaddr);
+				"%s: uaddr: %lx, size: %ld, kaddr: %lx\n",
+				__func__, tasks[i].kuaddr, tasks[i].size,
+				kaddr);
 
 			memcpy((void *)tasks[i].kuaddr, (void *)kaddr,
 			       tasks[i].size);
@@ -247,13 +250,14 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 	if (tasks_index <= 0)
 		goto out;
 
-	nova_dbg_delegation("kaddr: %lx, uaddr: %lx, bytes: %ld", kaddr, uaddr,
-			    bytes);
+	nova_dbg_delegation("%s: kaddr: %lx, uaddr: %lx, bytes: %ld", __func__,
+			    kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
 	for (i = 0; i < tasks_index; i++) {
-		nova_dbg_delegation("uaddr: %lx, size: %ld, kaddr: %lx\n",
-				    tasks[i].kuaddr, tasks[i].size, kaddr);
+		nova_dbg_delegation("%s: uaddr: %lx, size: %ld, kaddr: %lx\n",
+				    __func__, tasks[i].kuaddr, tasks[i].size,
+				    kaddr);
 
 #if NOVA_NT_STORE
 		__copy_from_user_inatomic_nocache(

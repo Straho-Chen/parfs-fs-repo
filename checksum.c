@@ -17,9 +17,8 @@
 
 #include "nova.h"
 
-static int nova_get_entry_copy(struct super_block *sb, void *entry,
-			       u32 *entry_csum, size_t *entry_size,
-			       void *entry_copy)
+static int get_entry_copy(struct super_block *sb, void *entry, u32 *entry_csum,
+			  size_t *entry_size, void *entry_copy)
 {
 	u8 type;
 	struct nova_dentry *dentry;
@@ -231,7 +230,7 @@ int nova_update_alter_entry(struct super_block *sb, void *entry)
 	}
 	alter_entry = (void *)nova_get_virt_addr_from_offset(sb, alter_curr);
 
-	ret = nova_get_entry_copy(sb, entry, &entry_csum, &size, entry_copy);
+	ret = get_entry_copy(sb, entry, &entry_csum, &size, entry_copy);
 	if (ret)
 		return ret;
 
@@ -296,6 +295,36 @@ static int nova_repair_entry(struct super_block *sb, void *bad, void *good,
 	return ret;
 }
 
+bool nova_get_entry_copy(struct super_block *sb, void *entry, void *entryc)
+{
+	int ret = 0;
+	size_t entry_size;
+	u32 entry_csum;
+	char entry_copy[NOVA_MAX_ENTRY_LEN];
+	ret = get_entry_copy(sb, entry, &entry_csum, &entry_size, entry_copy);
+	if (ret < 0) { /* media error */
+		nova_dbg_verbose("%s: get_entry_copy failed: %d\n", __func__,
+				 ret);
+		ret = nova_repair_entry_pr(sb, entry);
+		nova_dbg_verbose("%s: nova_repair_entry_pr failed: %d\n",
+				 __func__, ret);
+		if (ret < 0)
+			goto fail;
+		/* try again */
+		ret = get_entry_copy(sb, entry, &entry_csum, &entry_size,
+				     entry_copy);
+		nova_dbg_verbose("%s: get_entry_copy failed again: %d\n",
+				 __func__, ret);
+		if (ret < 0)
+			goto fail;
+	}
+	memcpy(entryc, entry_copy, entry_size);
+	return true;
+fail:
+	nova_err(sb, "%s: unable to repair entry errors\n", __func__);
+	return false;
+}
+
 /* Verify the log entry checksum and get a copy in DRAM. */
 bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc)
 {
@@ -315,15 +344,20 @@ bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc)
 
 	NOVA_START_TIMING(verify_entry_csum_t, verify_time);
 
-	ret = nova_get_entry_copy(sb, entry, &entry_csum, &entry_size,
-				  entry_copy);
+	ret = get_entry_copy(sb, entry, &entry_csum, &entry_size, entry_copy);
 	if (ret < 0) { /* media error */
+		nova_dbg_verbose("%s: get_entry_copy main failed: %d\n",
+				 __func__, ret);
 		ret = nova_repair_entry_pr(sb, entry);
+		nova_dbg_verbose("%s: nova_repair_entry_pr main failed: %d\n",
+				 __func__, ret);
 		if (ret < 0)
 			goto fail;
 		/* try again */
-		ret = nova_get_entry_copy(sb, entry, &entry_csum, &entry_size,
-					  entry_copy);
+		ret = get_entry_copy(sb, entry, &entry_csum, &entry_size,
+				     entry_copy);
+		nova_dbg_verbose("%s: get_entry_copy main failed again: %d\n",
+				 __func__, ret);
 		if (ret < 0)
 			goto fail;
 	}
@@ -336,15 +370,20 @@ bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc)
 	}
 
 	alter = (void *)nova_get_virt_addr_from_offset(sb, alter_off);
-	ret = nova_get_entry_copy(sb, alter, &alter_csum, &alter_size,
-				  alter_copy);
+	ret = get_entry_copy(sb, alter, &alter_csum, &alter_size, alter_copy);
 	if (ret < 0) { /* media error */
+		nova_dbg_verbose("%s: get_entry_copy failed: %d\n", __func__,
+				 ret);
 		ret = nova_repair_entry_pr(sb, alter);
+		nova_dbg_verbose("%s: nova_repair_entry_pr alter failed: %d\n",
+				 __func__, ret);
 		if (ret < 0)
 			goto fail;
 		/* try again */
-		ret = nova_get_entry_copy(sb, alter, &alter_csum, &alter_size,
-					  alter_copy);
+		ret = get_entry_copy(sb, alter, &alter_csum, &alter_size,
+				     alter_copy);
+		nova_dbg_verbose("%s: get_entry_copy alter failed again: %d\n",
+				 __func__, ret);
 		if (ret < 0)
 			goto fail;
 	}

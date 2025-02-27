@@ -80,4 +80,7 @@
 
 #define NOVA_DELE_THREAD_SLEEP 1
 
+#define NOVA_VERIFY_DATA_CSUM 0
+#define NOVA_VERIFY_ENTRY_CSUM 0
+
 #endif /* __NOVA_CONFIG_H_ */

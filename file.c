@@ -562,10 +562,20 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 			goto memcpy;
 		}
 
+		/*
+		* Do all verify om recovery path
+		*/
 		if (metadata_csum == 0)
 			entryc = entry;
+#if NOVA_VERIFY_ENTRY_CSUM
 		else if (!nova_verify_entry_csum(sb, entry, entryc))
 			return -EIO;
+#else
+		else if (!nova_get_entry_copy(sb, entry, &entry_copy)) {
+			nova_err(sb, "%s: copy entry failed!\n", __func__);
+			return -EIO;
+		}
+#endif
 
 		/* Find contiguous blocks */
 		if (index < entryc->pgoff ||
@@ -598,6 +608,10 @@ memcpy:
 			__func__, entryc->num_pages, entryc->pgoff, index, nr,
 			offset);
 
+/*
+ * We do verification only on recovery path.
+ */
+#if NOVA_VERIFY_DATA_CSUM
 		if ((!zero) && (data_csum > 0)) {
 			if (nova_find_pgoff_in_vma(inode, index))
 				goto skip_verify;
@@ -612,6 +626,7 @@ memcpy:
 				goto out;
 			}
 		}
+#endif
 skip_verify:
 		left = do_nova_nvmm_read(sb, buf + copied, dax_mem + offset, nr,
 					 zero, issued_cnt, completed_cnt,
