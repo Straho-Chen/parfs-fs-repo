@@ -838,6 +838,14 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					 sb, kmem + offset, (void *)buf, bytes,
 					 0, 1, 0, issued_cnt, completed_cnt,
 					 len >= NOVA_WRITE_WAIT_THRESHOLD);
+		if (data_csum == 0 && data_parity == 0) {
+			/* If data_csum is disable, do not use delegation! */
+			NOVA_START_TIMING(fini_delegation_w_t,
+					  fini_delegation_time);
+			nova_complete_delegation(issued_cnt, completed_cnt);
+			NOVA_END_TIMING(fini_delegation_w_t,
+					fini_delegation_time);
+		}
 
 		if (data_csum > 0 || data_parity > 0) {
 			ret = nova_protect_file_data(sb, inode, pos, bytes, buf,
@@ -946,9 +954,11 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 	sih->trans_id++;
 out:
-	NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
-	nova_complete_delegation(issued_cnt, completed_cnt);
-	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
+	if (data_csum > 0 || data_parity > 0) {
+		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
+	}
 
 	if (ret < 0)
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,

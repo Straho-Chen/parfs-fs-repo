@@ -139,7 +139,6 @@ int nova_update_pgoff_parity(struct super_block *sb,
  * performance if possible. This unrolling applies to stripe width of 8 and
  * whole block writes.
  */
-// TODO: replace by xxhash
 int nova_update_block_csum_parity(struct super_block *sb,
 				  struct nova_inode_info_header *sih, u8 *block,
 				  unsigned long blocknr, size_t offset,
