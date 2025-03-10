@@ -35,7 +35,7 @@ struct nova_inode_log_page {
 	struct nova_inode_page_tail page_tail;
 } __attribute((__packed__));
 
-#define EXTEND_THRESHOLD 256
+#define EXTEND_THRESHOLD (256 * 1024)
 
 enum nova_entry_type {
 	FILE_WRITE = 1,

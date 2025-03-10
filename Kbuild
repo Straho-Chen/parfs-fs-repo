@@ -11,7 +11,7 @@ parfs-objs += balloc.o bbuild.o checksum.o dax.o dir.o file.o gc.o inode.o ioctl
 
 
 ccflags-y += -I$(src)/solros_include
-ccflags-y += -O3 -mtune=native
+ccflags-y += -O3 -mtune=native -mavx
 EXTRA_CFLAGS += -DRING_BUFFER_CONF_KERNEL \
 		-DRING_BUFFER_CONF_NO_MMAP \
 		-DRING_BUFFER_CONF_NO_DOUBLE_MMAP

@@ -689,6 +689,7 @@ static ssize_t nova_dax_file_read(struct file *filp, char __user *buf,
 /*
  * Perform a COW write.   Must hold the inode lock before calling.
  */
+// TODO: we should change all small pmem write to dram
 static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				      size_t len, loff_t *ppos)
 {
@@ -700,6 +701,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	struct nova_inode *pi, inode_copy;
 	struct nova_file_write_entry entry_data;
 	struct nova_inode_update update;
+	char *ubuf_copy = NULL;
 	ssize_t written = 0;
 	loff_t pos;
 	size_t count, offset, copied;
@@ -732,6 +734,23 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 	NOVA_START_TIMING(do_cow_write_t, cow_write_time);
 
+	/*
+	 * let user buffer to be kernel thread shared and 64-byte aligned
+	 */
+	ubuf_copy = vmalloc(len + 64);
+	if (ubuf_copy == NULL) {
+		nova_err(sb, "%s: user kernel buffer allocation error\n",
+			 __func__);
+		return -ENOMEM;
+	}
+	ubuf_copy = (char *)(((unsigned long)ubuf_copy + 63) & ~0x3f);
+	ret = copy_from_user(ubuf_copy, buf, len);
+	if (ret) {
+		nova_dbg("%s: copy_from_user failed %ld\n", __func__, ret);
+		ret = -EFAULT;
+		goto out;
+	}
+
 	memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
 	memset(completed_cnt, 0,
 	       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
@@ -752,9 +771,15 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	/* nova_inode tail pointer will be updated and we make sure all other
 	 * inode fields are good before checksumming the whole structure
 	 */
-	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
-				       sih->alter_pi_addr, &inode_copy,
-				       0) < 0) {
+	// if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
+	// 			       sih->alter_pi_addr, &inode_copy,
+	// 			       0) < 0) {
+	// 	ret = -EIO;
+	// 	goto out;
+	// }
+	/* Do integrity checking on recovery. */
+	if (nova_copy_inode(sb, sih->ino, sih->pi_addr, sih->alter_pi_addr,
+			    &inode_copy) < 0) {
 		ret = -EIO;
 		goto out;
 	}
@@ -833,10 +858,11 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				goto out;
 		}
 		/* Now copy from user buf */
-		copied = bytes - do_nova_nvmm_write(
-					 sb, kmem + offset, (void *)buf, bytes,
-					 0, 1, 0, issued_cnt, completed_cnt,
-					 len >= NOVA_WRITE_WAIT_THRESHOLD);
+		copied = bytes -
+			 do_nova_nvmm_write(sb, kmem + offset,
+					    (void *)ubuf_copy, bytes, 0, 1, 0,
+					    issued_cnt, completed_cnt,
+					    len >= NOVA_WRITE_WAIT_THRESHOLD);
 		if (data_csum == 0 && data_parity == 0) {
 			NOVA_START_TIMING(fini_delegation_w_t,
 					  fini_delegation_time);
@@ -847,8 +873,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 		if (data_csum > 0 || data_parity > 0) {
 			/* calculate data checksum and write csum to pmem */
-			ret = nova_protect_file_data(sb, inode, pos, bytes, buf,
-						     blocknr, false);
+			ret = nova_protect_file_data(sb, inode, pos, bytes,
+						     ubuf_copy, blocknr, false);
 			if (ret)
 				goto out;
 		}
@@ -865,8 +891,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 		/* write entry to pm; Jm and M */
 		/* may do gc here */
-		ret = nova_append_file_write_entry(sb, pi, inode, &entry_data,
-						   &update);
+		// ret = nova_append_file_write_entry(sb, &inode_copy, inode, &entry_data,
+		// 				   &update);
+		// ret = nova_append_file_write_entry(sb, pi, inode, &entry_data,
+		// 				   &update);
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);
 			ret = -ENOSPC;
@@ -891,20 +919,18 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		if (status < 0)
 			break;
 
-		if (begin_tail == 0)
-			begin_tail = update.curr_entry;
+		begin_tail = update.curr_entry;
 
 		nova_memunlock_inode(sb, pi, &irq_flags);
 		// update inode (pi->log_tail); like Jc
-		nova_update_inode(sb, inode, pi, &update, 1);
+		nova_update_inode(sb, inode, &inode_copy, &update, 1);
+		// nova_update_inode(sb, inode, pi, &update, 1);
 		nova_memlock_inode(sb, pi, &irq_flags);
 
 		/* Free the overlap blocks after the write is committed */
-		ret = nova_reassign_file_tree(sb, sih, begin_tail);
-		if (ret)
-			goto out;
-
-		begin_tail = 0;
+		// ret = nova_reassign_file_tree(sb, sih, begin_tail);
+		// if (ret)
+		// 	goto out;
 
 		cond_cnt++;
 		if (cond_cnt >= NOVA_APP_RING_BUFFER_CHECK_COUNT) {
@@ -913,6 +939,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				cond_resched();
 		}
 	}
+
+	memcpy_to_pmem_nocache(pi, &inode_copy, sizeof(struct nova_inode));
 
 	sih->i_blocks += (total_blocks << (data_bits - sb->s_blocksize_bits));
 

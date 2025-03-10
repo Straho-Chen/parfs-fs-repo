@@ -4,8 +4,11 @@
 #include "agent.h"
 #include "delegation.h"
 
+#if NOVA_SOLROS_RING_BUFFER
 #include <solros_ring_buffer_api.h>
 typedef struct solros_ring_buffer_t nova_ring_buffer_t;
+#else
+#endif
 
 extern int nova_num_of_rings_per_socket;
 

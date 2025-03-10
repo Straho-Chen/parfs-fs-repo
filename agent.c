@@ -121,6 +121,7 @@ static int create_agent_tasks(struct mm_struct *mm, unsigned long uaddr,
 
 		if (phy_addr == 0) {
 			/* This should not happen */
+			nova_warn("user phy_addr is null\n");
 			goto out;
 		}
 
@@ -172,22 +173,23 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
-	INIT_TIMING(address_translation_time);
 	INIT_TIMING(memcpy_time);
 
+#if NOVA_AGENT_ADDR_TRANS
+	INIT_TIMING(address_translation_time);
 	NOVA_START_TIMING(agent_addr_trans_r_t, address_translation_time);
 	tasks_index = create_agent_tasks(mm, uaddr, bytes, tasks);
 	NOVA_END_TIMING(agent_addr_trans_r_t, address_translation_time);
-
 	if (tasks_index <= 0)
 		goto out;
+#endif
 
 	nova_dbg_delegation("%s: kaddr: %lx, uaddr: %lx, bytes: %ld", __func__,
 			    kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_r_t, memcpy_time);
-	// TODO: task array is filled with 4K read (generally), because user phy addr is not contiguous.
-	// TODO: shall we do some remapping here to aligned to 32K?
+
+#if NOVA_AGENT_ADDR_TRANS
 	for (i = 0; i < tasks_index; i++) {
 		if (zero) {
 			memset((void *)tasks[i].kuaddr, 0, tasks[i].size);
@@ -202,6 +204,17 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 			kaddr += tasks[i].size;
 		}
 	}
+#else
+
+	// TODO: user buf cannot access from delegation thread
+	// if (zero) {
+	// 	__clear_user((void *)uaddr, bytes);
+	// } else {
+	// 	__copy_to_user((void *)uaddr, (void *)kaddr, bytes);
+	// }
+
+#endif
+
 	NOVA_END_TIMING(agent_memcpy_r_t, memcpy_time);
 
 out:
@@ -224,10 +237,10 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 {
 	int i = 0, tasks_index = 0;
 	unsigned long orig_kaddr = kaddr;
+	int ret = 0;
 
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
-	INIT_TIMING(address_translation_time);
 	INIT_TIMING(memcpy_time);
 
 	if (zero) {
@@ -243,24 +256,28 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 		goto out;
 	}
 
+#if NOVA_AGENT_ADDR_TRANS
+	INIT_TIMING(address_translation_time);
 	NOVA_START_TIMING(agent_addr_trans_w_t, address_translation_time);
 	tasks_index = create_agent_tasks(mm, uaddr, bytes, tasks);
 	NOVA_END_TIMING(agent_addr_trans_w_t, address_translation_time);
-
 	if (tasks_index <= 0)
 		goto out;
+#endif
 
-	nova_dbg_delegation("%s: kaddr: %lx, uaddr: %lx, bytes: %ld", __func__,
-			    kaddr, uaddr, bytes);
+	nova_dbg_delegation("%s: kaddr: %lx, uaddr: %lx, bytes: %ld\n",
+			    __func__, kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
+
+#if NOVA_AGENT_ADDR_TRANS
 	for (i = 0; i < tasks_index; i++) {
 		nova_dbg_delegation("%s: uaddr: %lx, size: %ld, kaddr: %lx\n",
 				    __func__, tasks[i].kuaddr, tasks[i].size,
 				    kaddr);
 
 #if NOVA_NT_STORE
-		__copy_from_user_inatomic_nocache(
+		memcpy_to_pmem_avx_nocache(
 			(void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
 #else
 		memcpy((void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
@@ -272,6 +289,16 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 #if !NOVA_NT_STORE
 	if (flush_cache)
 		nova_flush_buffer((void *)orig_kaddr, bytes, 0);
+#endif
+
+#else
+
+	if (memcpy_to_pmem_avx_nocache((void *)kaddr, (void *)uaddr, bytes)) {
+		nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
+		ret = -EFAULT;
+		goto out;
+	}
+
 #endif
 
 	NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);

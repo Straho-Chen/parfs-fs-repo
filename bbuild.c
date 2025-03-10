@@ -914,8 +914,8 @@ static int nova_set_ring_array(struct super_block *sb,
 	for (pgoff = start; pgoff < end; pgoff++) {
 		index = pgoff - base;
 		ring->entry_array[index] = (u64)entry;
-		ring->nvmm_array[index] = (u64)(entryc->block >> PAGE_SHIFT) +
-					  pgoff - entryc->pgoff;
+		ring->nvmm_array[index] =
+			(u64)(get_nvmm(sb, sih, entry, pgoff));
 	}
 
 	return 0;

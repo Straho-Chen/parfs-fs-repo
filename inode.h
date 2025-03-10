@@ -168,7 +168,7 @@ static inline int nova_update_alter_inode(struct super_block *sb,
 	if (!alter_pi)
 		return -EINVAL;
 
-	memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
+	// memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	return 0;
 }
 
@@ -184,7 +184,7 @@ static inline int nova_update_inode_checksum(struct nova_inode *pi)
 
 	pi->csum = crc;
 persist:
-	nova_flush_buffer(pi, sizeof(struct nova_inode), 1);
+	// nova_flush_buffer(pi, sizeof(struct nova_inode), 1);
 	return 0;
 }
 
@@ -210,9 +210,9 @@ static inline void nova_update_tail(struct nova_inode *pi, u64 new_tail)
 
 	NOVA_START_TIMING(update_tail_t, update_time);
 
-	PERSISTENT_BARRIER();
+	// PERSISTENT_BARRIER();
 	pi->log_tail = new_tail;
-	nova_flush_buffer(&pi->log_tail, CACHELINE_SIZE, 1);
+	// nova_flush_buffer(&pi->log_tail, CACHELINE_SIZE, 1);
 
 	NOVA_END_TIMING(update_tail_t, update_time);
 }
@@ -226,9 +226,9 @@ static inline void nova_update_alter_tail(struct nova_inode *pi, u64 new_tail)
 
 	NOVA_START_TIMING(update_tail_t, update_time);
 
-	PERSISTENT_BARRIER();
+	// PERSISTENT_BARRIER();
 	pi->alter_log_tail = new_tail;
-	nova_flush_buffer(&pi->alter_log_tail, CACHELINE_SIZE, 1);
+	// nova_flush_buffer(&pi->alter_log_tail, CACHELINE_SIZE, 1);
 
 	NOVA_END_TIMING(update_tail_t, update_time);
 }

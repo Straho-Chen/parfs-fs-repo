@@ -139,18 +139,18 @@ enum timing_category {
 	perf_t,
 	wprotect_t,
 
-	/* Mmap */
-	mmap_title_t,
-	mmap_fault_t,
-	pmd_fault_t,
-	pfn_mkwrite_t,
-	insert_vma_t,
-	remove_vma_t,
-	set_vma_read_t,
-	mmap_cow_t,
-	update_mapping_t,
-	update_pfn_t,
-	mmap_handler_t,
+	// /* Mmap */
+	// mmap_title_t,
+	// mmap_fault_t,
+	// pmd_fault_t,
+	// pfn_mkwrite_t,
+	// insert_vma_t,
+	// remove_vma_t,
+	// set_vma_read_t,
+	// mmap_cow_t,
+	// update_mapping_t,
+	// update_pfn_t,
+	// mmap_handler_t,
 
 	/* Rebuild */
 	rebuild_title_t,
@@ -231,17 +231,27 @@ typedef struct timespec64 timing_t;
 
 #define INIT_TIMING(X) timing_t X = { 0 }
 
+static inline void mem_fence(void)
+{
+	asm volatile("mfence\n" : :);
+}
+
 #define NOVA_START_TIMING(name, start)          \
 	{                                       \
-		if (measure_timing)             \
+		if (measure_timing) {           \
+			mem_fence();            \
 			ktime_get_ts64(&start); \
+			mem_fence();            \
+		}                               \
 	}
 
 #define NOVA_END_TIMING(name, start)                                           \
 	{                                                                      \
 		if (measure_timing) {                                          \
 			INIT_TIMING(end);                                      \
+			mem_fence();                                           \
 			ktime_get_ts64(&end);                                  \
+			mem_fence();                                           \
 			__this_cpu_add(Timingstats_percpu[name],               \
 				       (end.tv_sec - start.tv_sec) *           \
 						       1000000000 +            \

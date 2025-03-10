@@ -166,7 +166,7 @@ void nova_update_entry_csum(void *entry)
 	size_t entry_len = CACHELINE_SIZE;
 
 	if (metadata_csum == 0)
-		goto flush;
+		goto out;
 
 	type = nova_get_entry_type(entry);
 	csum = nova_calc_entry_csum(entry);
@@ -203,9 +203,11 @@ void nova_update_entry_csum(void *entry)
 		break;
 	}
 
-flush:
 	if (entry_len > 0)
-		nova_flush_buffer(entry, entry_len, 1);
+		nova_flush_buffer(entry, entry_len, 0);
+
+out:
+	return;
 }
 
 int nova_update_alter_entry(struct super_block *sb, void *entry)
@@ -495,6 +497,40 @@ static int nova_repair_inode(struct super_block *sb, struct nova_inode *bad_pi,
 	return ret;
 }
 
+int nova_copy_inode(struct super_block *sb, u64 ino, u64 pi_addr,
+		    u64 alter_pi_addr, struct nova_inode *pic)
+{
+	struct nova_inode *pi, *alter_pi;
+	int ret;
+
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
+
+	ret = memcpy_mcsafe(pic, pi, sizeof(struct nova_inode));
+
+	if (metadata_csum == 0)
+		return ret;
+
+	alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
+		sb, alter_pi_addr);
+
+	if (ret < 0) { /* media error */
+		ret = nova_repair_inode_pr(sb, pi, alter_pi);
+		if (ret < 0)
+			goto fail;
+		/* try again */
+		ret = memcpy_mcsafe(pic, pi, sizeof(struct nova_inode));
+		if (ret < 0)
+			goto fail;
+	}
+
+	return 0;
+
+fail:
+	nova_err(sb, "%s: unable to repair inode errors\n", __func__);
+
+	return -EIO;
+}
+
 /*
  * Check nova_inode and get a copy in DRAM.
  * If we are going to update (write) the inode, we don't need to check the
@@ -592,7 +628,6 @@ fail:
 	return -EIO;
 }
 
-// TODO: replace with xxhash
 static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 				   unsigned long strp_nr, u8 *strp_ptr,
 				   int zero)

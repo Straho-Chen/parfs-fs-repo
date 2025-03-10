@@ -186,6 +186,62 @@ static inline int memcpy_to_pmem_nocache(void *dst, const void *src,
 	return ret;
 }
 
+/*
+ * ubuf_copy should be in kernel space and 64-byte aligned.
+ */
+static inline int memcpy_to_pmem_avx_nocache(void *dst_addr,
+					     void *src_ubuf_copy,
+					     unsigned int size)
+{
+	int ret;
+
+	if ((unsigned long)src_ubuf_copy & 0x3f) {
+		nova_warn("src_ubuf_copy %p unaligned to 64 bytes\n",
+			  src_ubuf_copy);
+		return -1;
+	}
+
+	// check 64-byte alignment
+	if (((unsigned long)dst_addr & 0x3f) == 0) {
+		size_t i;
+
+		kernel_fpu_begin();
+		// 每次处理 256 字节
+		for (i = 0; i + 256 <= size; i += 256) {
+			asm volatile(
+				"vmovdqa64 (%[src]), %%zmm0 \n" // 从 src_addr 加载 64 字节到 zmm0
+				"vmovdqa64 64(%[src]), %%zmm1 \n" // 从 src_addr + 64 加载 64 字节到 zmm1
+				"vmovdqa64 128(%[src]), %%zmm2 \n" // 从 src_addr + 128 加载 64 字节到 zmm2
+				"vmovdqa64 192(%[src]), %%zmm3 \n" // 从 src_addr + 192 加载 64 字节到 zmm3
+
+				"vmovntdq %%zmm0, (%[dst]) \n" // 将 zmm0 中的数据非临时存储到 start_addr
+				"vmovntdq %%zmm1, 64(%[dst]) \n" // 将 zmm1 中的数据非临时存储到 start_addr + 64
+				"vmovntdq %%zmm2, 128(%[dst]) \n" // 将 zmm2 中的数据非临时存储到 start_addr + 128
+				"vmovntdq %%zmm3, 192(%[dst]) \n" // 将 zmm3 中的数据非临时存储到 start_addr + 192
+				:
+				: [src] "r"(src_ubuf_copy + i), [dst] "r"(
+									dst_addr +
+									i)
+				: "zmm0", "zmm1", "zmm2", "zmm3", "memory");
+		}
+		kernel_fpu_end();
+
+		// 处理剩余的数据
+		for (; i < size; ++i) {
+			((char *)dst_addr)[i] = ((char *)src_ubuf_copy)[i];
+		}
+		PERSISTENT_BARRIER();
+
+		ret = 0;
+
+	} else {
+		ret = __copy_from_user_inatomic_nocache(dst_addr, src_ubuf_copy,
+							size);
+	}
+
+	return ret;
+}
+
 /* assumes the length to be 4-byte aligned */
 static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 {
@@ -655,7 +711,7 @@ static inline void nova_set_next_page_flag(struct super_block *sb, u64 curr_off)
 
 	p = nova_get_virt_addr_from_offset(sb, curr_off);
 	nova_set_entry_type(p, NEXT_PAGE);
-	nova_flush_buffer(p, CACHELINE_SIZE, 1);
+	// nova_flush_buffer(p, CACHELINE_SIZE, 1);
 }
 
 static inline void
@@ -664,10 +720,8 @@ nova_set_next_page_address(struct super_block *sb,
 			   int fence)
 {
 	curr_page->page_tail.next_page = next_page;
-	nova_flush_buffer(&curr_page->page_tail,
-			  sizeof(struct nova_inode_page_tail), 0);
-	if (fence)
-		PERSISTENT_BARRIER();
+	// nova_flush_buffer(&curr_page->page_tail,
+	// 		  sizeof(struct nova_inode_page_tail), fence);
 }
 
 static inline void
@@ -702,8 +756,8 @@ static inline void nova_inc_page_num_entries(struct super_block *sb, u64 curr)
 			sb, curr);
 
 	curr_page->page_tail.num_entries++;
-	nova_flush_buffer(&curr_page->page_tail,
-			  sizeof(struct nova_inode_page_tail), 0);
+	// nova_flush_buffer(&curr_page->page_tail,
+	// 		  sizeof(struct nova_inode_page_tail), 1);
 }
 
 u64 nova_print_log_entry(struct super_block *sb, u64 curr);
@@ -746,12 +800,12 @@ static inline void nova_set_alter_page_address(struct super_block *sb,
 		nova_get_virt_addr_from_offset(sb, BLOCK_OFF(alter_curr_off));
 
 	curr_page->page_tail.alter_page = alter_curr_off;
-	nova_flush_buffer(&curr_page->page_tail,
-			  sizeof(struct nova_inode_page_tail), 0);
+	// nova_flush_buffer(&curr_page->page_tail,
+	// 		  sizeof(struct nova_inode_page_tail), 0);
 
 	alter_page->page_tail.alter_page = curr_off;
-	nova_flush_buffer(&alter_page->page_tail,
-			  sizeof(struct nova_inode_page_tail), 0);
+	// nova_flush_buffer(&alter_page->page_tail,
+	// 		  sizeof(struct nova_inode_page_tail), 0);
 }
 
 #define CACHE_ALIGN(p) ((p) & ~(CACHELINE_SIZE - 1))
@@ -918,10 +972,10 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 	INIT_TIMING(memcpy_time);
 	INIT_TIMING(delegation_time);
 
+	nova_memunlock_range(sb, kmem_dest, bytes, &irq_flags);
 	if (bytes < NOVA_WRITE_DELEGATION_LIMIT) {
 		nova_dbg_verbose("less than delegation limit\n");
 		NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
-		nova_memunlock_range(sb, kmem_dest, bytes, &irq_flags);
 		if (zero) {
 			nova_dbg_verbose("do memset_nt to fill zero\n");
 			memset_nt(kmem_dest, 0, bytes);
@@ -934,7 +988,6 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			left = memcpy_to_pmem_nocache(kmem_dest, ubuf_src,
 						      bytes);
 		}
-		nova_memlock_range(sb, kmem_dest, bytes, &irq_flags);
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
 		nova_dbg_verbose("do delegation\n");
@@ -945,6 +998,7 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			sfence, issued_cnt, completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_w_t, delegation_time);
 	}
+	nova_memlock_range(sb, kmem_dest, bytes, &irq_flags);
 
 	return left;
 }
@@ -1007,6 +1061,8 @@ int nova_update_block_csum(struct super_block *sb,
 			   unsigned long blocknr, size_t offset, size_t bytes,
 			   int zero);
 int nova_update_alter_entry(struct super_block *sb, void *entry);
+int nova_copy_inode(struct super_block *sb, u64 ino, u64 pi_addr,
+		    u64 alter_pi_addr, struct nova_inode *pic);
 int nova_check_inode_integrity(struct super_block *sb, u64 ino, u64 pi_addr,
 			       u64 alter_pi_addr, struct nova_inode *pic,
 			       int check_replica);
@@ -1056,7 +1112,7 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 				 long *issued_cnt,
 				 struct nova_notifyer *completed_cnt);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
-			   loff_t pos, size_t count, const char __user *buf,
+			   loff_t pos, size_t count, char *ubuf_copy,
 			   unsigned long blocknr, bool inplace);
 ssize_t nova_inplace_file_write(struct file *filp, const char __user *buf,
 				size_t len, loff_t *ppos);

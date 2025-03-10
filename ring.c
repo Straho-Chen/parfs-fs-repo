@@ -18,8 +18,13 @@ int nova_init_ring_buffers(int sockets)
 		for (j = 0; j < nova_dele_thrds; j++) {
 			nova_ring_buffer_t *ret;
 			/* nonblocking ring buffer for each socket */
+
+#if NOVA_SOLROS_RING_BUFFER
 			ret = solros_ring_create(NOVA_RING_SIZE,
 						 NOVA_RING_ALIGN, i, 0);
+#else
+			ret = ring_buffer_alloc(NOVA_RING_SIZE, 0);
+#endif
 
 			if (ret == NULL)
 				goto err;
@@ -44,19 +49,32 @@ void nova_fini_ring_buffers(void)
 			if (!nova_ring_buffer[i][j])
 				continue;
 
+#if NOVA_SOLROS_RING_BUFFER
 			solros_ring_destroy(nova_ring_buffer[i][j]);
+#else
+			ring_buffer_free(nova_ring_buffer[i][j]);
+#endif
 		}
 }
 
 int nova_send_request(nova_ring_buffer_t *ring,
 		      struct nova_delegation_request *request)
 {
+#if NOVA_SOLROS_RING_BUFFER
 	return solros_ring_enqueue(ring, request,
 				   sizeof(struct nova_delegation_request), 1);
+#else
+	return ring_buffer_write(ring, sizeof(struct nova_delegation_request),
+				 request);
+#endif
 }
 
 int nova_recv_request(nova_ring_buffer_t *ring,
 		      struct nova_delegation_request *request)
 {
+#if NOVA_SOLROS_RING_BUFFER
 	return solros_ring_dequeue(ring, request, NULL, 1);
+#else
+// TODO: wait for implementation
+#endif
 }
