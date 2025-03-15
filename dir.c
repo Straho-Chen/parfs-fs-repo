@@ -209,7 +209,8 @@ static unsigned int nova_init_dentry(struct super_block *sb,
  * TODO: why is epoch_id a parameter when we pass in the sb?
  */
 int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
-				 u64 self_ino, u64 parent_ino, u64 epoch_id)
+				 struct nova_inode *pic, u64 self_ino,
+				 u64 parent_ino, u64 epoch_id)
 {
 	struct nova_inode_info_header sih;
 	struct nova_inode *alter_pi;
@@ -220,9 +221,15 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 	unsigned int length;
 	struct nova_dentry *de_entry;
 	unsigned long irq_flags = 0;
+	int faf = 0;
+
+	if (!pic) {
+		pic = pi;
+		faf = 1;
+	}
 
 	sih.ino = self_ino;
-	sih.i_blk_type = NOVA_DEFAULT_BLOCK_TYPE;
+	sih.i_blk_type = NOVA_BLOCK_TYPE_4K;
 
 	allocated = nova_allocate_inode_log_pages(sb, &sih, 1, &new_block,
 						  ANY_CPU, 0);
@@ -233,16 +240,16 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
 
-	pi->log_tail = pi->log_head = new_block;
+	pic->log_tail = pic->log_head = new_block;
 
 	de_entry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
 		sb, new_block);
 
 	length = nova_init_dentry(sb, de_entry, self_ino, parent_ino, epoch_id);
 
-	nova_update_tail(pi, new_block + length);
+	nova_update_tail(pi, new_block + length, faf);
 
-	nova_flush_buffer(&(pi->log_head), CACHELINE_SIZE, 0);
+	// nova_flush_buffer(&(pi->log_head), CACHELINE_SIZE, 0);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	if (metadata_csum == 0)
@@ -255,17 +262,17 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 		return -ENOMEM;
 	}
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	pi->alter_log_tail = pi->alter_log_head = new_block;
+	pic->alter_log_tail = pic->alter_log_head = new_block;
 
 	de_entry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
 		sb, new_block);
 
 	length = nova_init_dentry(sb, de_entry, self_ino, parent_ino, epoch_id);
 
-	nova_update_alter_tail(pi, new_block + length);
-	nova_update_alter_pages(sb, pi, pi->log_head, pi->alter_log_head);
-	nova_update_inode_checksum(pi);
-	nova_flush_buffer(pi, sizeof(struct nova_inode), 0);
+	nova_update_alter_tail(pic, new_block + length, faf);
+	nova_update_alter_pages(sb, pic, pic->log_head, pic->alter_log_head);
+	nova_update_inode_checksum(pic, faf);
+	// nova_flush_buffer(pi, sizeof(struct nova_inode), 0);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	/* Get alternate inode address */
@@ -279,7 +286,7 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 		return -EINVAL;
 
 	nova_memunlock_inode(sb, alter_pi, &irq_flags);
-	memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
+	memcpy_to_pmem_nocache(alter_pi, pic, sizeof(struct nova_inode));
 	nova_memlock_inode(sb, alter_pi, &irq_flags);
 
 	return 0;

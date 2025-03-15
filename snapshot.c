@@ -207,7 +207,7 @@ static int nova_background_clean_snapshot_list(struct super_block *sb,
 	u8 type;
 
 	sih.ino = NOVA_SNAPSHOT_INO;
-	sih.i_blk_type = NOVA_DEFAULT_BLOCK_TYPE;
+	sih.i_blk_type = NOVA_BLOCK_TYPE_4K;
 	sih.log_head = sih.log_tail = 0;
 
 	curr_p = list->head;
@@ -891,6 +891,7 @@ static int nova_append_snapshot_info_log(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_info *si = sbi->snapshot_si;
 	struct nova_inode *pi = nova_get_reserved_inode(sb, NOVA_SNAPSHOT_INO);
+	struct nova_inode pic;
 	struct nova_inode_update update;
 	struct nova_snapshot_info_entry entry_info;
 	int ret;
@@ -903,7 +904,8 @@ static int nova_append_snapshot_info_log(struct super_block *sb,
 	entry_info.timestamp = timestamp;
 
 	update.tail = update.alter_tail = 0;
-	ret = nova_append_snapshot_info_entry(sb, pi, si, info, &entry_info,
+	memcpy(&pic, pi, sizeof(struct nova_inode));
+	ret = nova_append_snapshot_info_entry(sb, &pic, si, info, &entry_info,
 					      &update);
 	if (ret) {
 		nova_dbg("%s: append snapshot info entry failure\n", __func__);
@@ -911,7 +913,7 @@ static int nova_append_snapshot_info_log(struct super_block *sb,
 	}
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	nova_update_inode(sb, &si->vfs_inode, pi, &update, 1);
+	nova_update_inode(sb, &si->vfs_inode, pi, &pic, &update, 1);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	return 0;
@@ -1415,7 +1417,7 @@ int nova_snapshot_init(struct super_block *sb)
 	sih->pi_addr = nova_get_reserved_inode_addr(sb, ino);
 	sih->alter_pi_addr = nova_get_alter_reserved_inode_addr(sb, ino);
 	sih->ino = ino;
-	sih->i_blk_type = NOVA_DEFAULT_BLOCK_TYPE;
+	sih->i_blk_type = NOVA_BLOCK_TYPE_4K;
 
 	INIT_RADIX_TREE(&sbi->snapshot_info_tree, GFP_ATOMIC);
 	init_waitqueue_head(&sbi->snapshot_mmap_wait);

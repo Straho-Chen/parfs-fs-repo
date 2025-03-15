@@ -283,6 +283,45 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 
 #include "super.h" // Remove when we factor out these and other functions.
 
+static inline unsigned long nova_get_numblocks(unsigned short btype)
+{
+	unsigned long num_blocks;
+
+	if (btype == NOVA_BLOCK_TYPE_4K) {
+		num_blocks = 1;
+	} else if (btype == NOVA_BLOCK_TYPE_32K) {
+		num_blocks = 8;
+	} else if (btype == NOVA_BLOCK_TYPE_2M) {
+		num_blocks = 512;
+	} else {
+		//btype == NOVA_BLOCK_TYPE_1G
+		num_blocks = 0x40000;
+	}
+	return num_blocks;
+}
+
+static inline int nova_blocknr_to_index(int blocknr, int btype)
+{
+	return blocknr / nova_get_numblocks(btype);
+}
+
+/* Which socket this block belongs to */
+static inline int nova_block_to_socket(struct nova_sb_info *sbi, int blocknr,
+				       int btype)
+{
+	return nova_blocknr_to_index(blocknr, btype) % sbi->sockets;
+}
+
+static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr)
+{
+	return blocknr / sbi->per_list_blocks;
+}
+
+static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, int blocknr)
+{
+	return blocknr / sbi->sockets;
+}
+
 /* Translate an offset the beginning of the Nova instance to a PMEM address.
  *
  * If this is part of a read-modify-write of the block,
@@ -329,7 +368,18 @@ static inline u64 nova_get_block_off(struct super_block *sb,
 				     unsigned long blocknr,
 				     unsigned short btype)
 {
-	return (u64)blocknr << PAGE_SHIFT;
+	struct nova_sb_info *sbi = NOVA_SB(sb);
+	// nova_dbg_verbose("%s: input blocknr: %#lx, btype: %d\n", __func__,
+	// 		 blocknr, btype);
+	int socket = nova_block_to_socket(sbi, blocknr, btype);
+	int socket_off = nova_block_to_nvmoff(sbi, blocknr);
+	u64 ret_off = (sbi->block_info[socket].start_block + socket_off)
+		      << PAGE_SHIFT;
+	// nova_dbg_verbose(
+	// 	"%s: output block off: %#llx, socket: %d, socket_off: %d, start_block_cur_socket: %#lx\n",
+	// 	__func__, ret_off, socket, socket_off,
+	// 	sbi->block_info[socket].start_block);
+	return ret_off;
 }
 
 static inline int nova_get_cpuid(struct super_block *sb)
@@ -352,47 +402,7 @@ static inline void nova_print_curr_epoch_id(struct super_block *sb)
 	u64 ret;
 
 	ret = sbi->s_epoch_id;
-	nova_dbg("Current epoch id: %llu\n", ret);
-}
-
-/* Which socket this block belongs to */
-static inline int nova_block_to_socket(struct nova_sb_info *sbi, int blocknr)
-{
-	int i = 0;
-
-	for (i = 0; i < sbi->device_num; i++) {
-		if (blocknr >= sbi->block_info[i].start_block &&
-		    blocknr <= sbi->block_info[i].end_block) {
-			break;
-		}
-	}
-
-	NOVA_ASSERT(i != sbi->device_num);
-	return i;
-}
-
-/* Which cpu or socket this block belongs to */
-static void nova_block_to_cpu_socket(struct nova_sb_info *sbi, int blocknr,
-				     int *cpu, int *socket)
-{
-	int cpu_tmp = 0;
-	unsigned long size = 0;
-
-	*socket = nova_block_to_socket(sbi, blocknr);
-
-	size = sbi->block_info[*socket].end_block -
-	       sbi->block_info[*socket].start_block + 1;
-
-	cpu_tmp = (blocknr - sbi->block_info[*socket].start_block) /
-		  (size / sbi->cpus);
-
-	/* The remainder of the last cpu */
-	if (cpu_tmp >= sbi->cpus)
-		cpu_tmp = sbi->cpus - 1;
-
-	(*cpu) = cpu_tmp;
-
-	return;
+	nova_info("Current epoch id: %llu\n", ret);
 }
 
 #include "inode.h"
@@ -623,23 +633,6 @@ static inline u64 nova_find_nvmm_block(struct super_block *sb,
 	return nvmm << PAGE_SHIFT;
 }
 
-static inline unsigned long nova_get_numblocks(unsigned short btype)
-{
-	unsigned long num_blocks;
-
-	if (btype == NOVA_BLOCK_TYPE_4K) {
-		num_blocks = 1;
-	} else if (btype == NOVA_BLOCK_TYPE_32K) {
-		num_blocks = 8;
-	} else if (btype == NOVA_BLOCK_TYPE_2M) {
-		num_blocks = 512;
-	} else {
-		//btype == NOVA_BLOCK_TYPE_1G
-		num_blocks = 0x40000;
-	}
-	return num_blocks;
-}
-
 static inline unsigned long nova_get_blocknr(struct super_block *sb, u64 block,
 					     unsigned short btype)
 {
@@ -711,7 +704,7 @@ static inline void nova_set_next_page_flag(struct super_block *sb, u64 curr_off)
 
 	p = nova_get_virt_addr_from_offset(sb, curr_off);
 	nova_set_entry_type(p, NEXT_PAGE);
-	// nova_flush_buffer(p, CACHELINE_SIZE, 1);
+	nova_flush_buffer(p, CACHELINE_SIZE, 0);
 }
 
 static inline void
@@ -720,8 +713,8 @@ nova_set_next_page_address(struct super_block *sb,
 			   int fence)
 {
 	curr_page->page_tail.next_page = next_page;
-	// nova_flush_buffer(&curr_page->page_tail,
-	// 		  sizeof(struct nova_inode_page_tail), fence);
+	nova_flush_buffer(&curr_page->page_tail,
+			  sizeof(struct nova_inode_page_tail), fence);
 }
 
 static inline void
@@ -756,8 +749,8 @@ static inline void nova_inc_page_num_entries(struct super_block *sb, u64 curr)
 			sb, curr);
 
 	curr_page->page_tail.num_entries++;
-	// nova_flush_buffer(&curr_page->page_tail,
-	// 		  sizeof(struct nova_inode_page_tail), 1);
+	nova_flush_buffer(&curr_page->page_tail,
+			  sizeof(struct nova_inode_page_tail), 0);
 }
 
 u64 nova_print_log_entry(struct super_block *sb, u64 curr);
@@ -800,12 +793,12 @@ static inline void nova_set_alter_page_address(struct super_block *sb,
 		nova_get_virt_addr_from_offset(sb, BLOCK_OFF(alter_curr_off));
 
 	curr_page->page_tail.alter_page = alter_curr_off;
-	// nova_flush_buffer(&curr_page->page_tail,
-	// 		  sizeof(struct nova_inode_page_tail), 0);
+	nova_flush_buffer(&curr_page->page_tail,
+			  sizeof(struct nova_inode_page_tail), 0);
 
 	alter_page->page_tail.alter_page = curr_off;
-	// nova_flush_buffer(&alter_page->page_tail,
-	// 		  sizeof(struct nova_inode_page_tail), 0);
+	nova_flush_buffer(&alter_page->page_tail,
+			  sizeof(struct nova_inode_page_tail), 0);
 }
 
 #define CACHE_ALIGN(p) ((p) & ~(CACHELINE_SIZE - 1))
@@ -855,15 +848,16 @@ static inline int is_dir_init_entry(struct super_block *sb,
 #include "balloc.h" // remove once we move the following functions away
 
 /* Checksum methods */
-static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 strp_nr,
+static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 					    int replica)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct free_list *free_list;
-	unsigned long blocknr;
 	void *data_csum_addr;
 	u64 blockoff;
-	int cpu, socket;
+	int cpu;
+	u64 strp_nr;
+	u64 strp_block_off;
 	int BLOCK_SHIFT = PAGE_SHIFT - NOVA_STRIPE_SHIFT;
 
 	if (!data_csum) {
@@ -871,37 +865,31 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 strp_nr,
 		return NULL;
 	}
 
-	blocknr = strp_nr >> BLOCK_SHIFT;
-	nova_block_to_cpu_socket(sbi, blocknr, &cpu, &socket);
+	cpu = nova_block_to_cpu(sbi, blocknr);
 
-	nova_dbg_verbose("%s: blocknr: %#lx, locate on cpu: %d socket: %d\n",
-			 __func__, blocknr, cpu, socket);
+	// nova_dbg_verbose("%s: blocknr: %#llx, locate on cpu: %d\n", __func__,
+	// 		 blocknr, cpu);
 
 	if (cpu >= sbi->cpus) {
-		nova_dbg("%s: Invalid blocknr %lu\n", __func__, blocknr);
+		nova_dbg("%s: Invalid blocknr %#llx\n", __func__, blocknr);
 		return NULL;
 	}
 
-	strp_nr -= (sbi->block_info[socket].start_block +
-		    cpu * sbi->per_list_blocks)
-		   << BLOCK_SHIFT;
-	free_list = nova_get_free_list(sb, cpu, socket);
+	// stripe number = block index on per cpu list << BLOCK_SHIFT
+	strp_nr = (blocknr - cpu * sbi->per_list_blocks) << BLOCK_SHIFT;
+	strp_block_off = (strp_nr * NOVA_DATA_CSUM_LEN) >> PAGE_SHIFT;
+
+	free_list = nova_get_free_list(sb, cpu);
 	if (replica == 0)
-		blockoff = free_list->csum_start << PAGE_SHIFT;
+		blockoff = nova_get_block_off(
+			sb, free_list->csum_start + strp_block_off,
+			NOVA_BLOCK_TYPE_4K);
 	else
-		blockoff = free_list->replica_csum_start << PAGE_SHIFT;
+		blockoff = nova_get_block_off(
+			sb, free_list->replica_csum_start + strp_block_off,
+			NOVA_BLOCK_TYPE_4K);
 
-	/* Range test */
-	if (((NOVA_DATA_CSUM_LEN * strp_nr) >> PAGE_SHIFT) >=
-	    free_list->num_csum_blocks) {
-		nova_dbg(
-			"%s: Invalid strp number %llu, free list cpu %d socket %d\n",
-			__func__, strp_nr, cpu, socket);
-		return NULL;
-	}
-
-	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff) +
-			 NOVA_DATA_CSUM_LEN * strp_nr;
+	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff);
 
 	return data_csum_addr;
 }
@@ -913,36 +901,30 @@ static inline void *nova_get_parity_addr(struct super_block *sb,
 	struct free_list *free_list;
 	void *data_csum_addr;
 	u64 blockoff;
-	int cpu, socket;
-	int BLOCK_SHIFT = PAGE_SHIFT - NOVA_STRIPE_SHIFT;
+	u64 strp_block_off;
+	int cpu;
 
 	if (data_parity == 0) {
 		nova_dbg("%s: Data parity is disabled!\n", __func__);
 		return NULL;
 	}
 
-	nova_block_to_cpu_socket(sbi, blocknr, &cpu, &socket);
+	cpu = nova_block_to_cpu(sbi, blocknr);
 
 	if (cpu >= sbi->cpus) {
 		nova_dbg("%s: Invalid blocknr %lu\n", __func__, blocknr);
 		return NULL;
 	}
 
-	free_list = nova_get_free_list(sb, cpu, socket);
-	blockoff = free_list->parity_start << PAGE_SHIFT;
+	free_list = nova_get_free_list(sb, cpu);
+	strp_block_off =
+		((blocknr - free_list->block_start) << NOVA_STRIPE_SHIFT) >>
+		PAGE_SHIFT;
+	blockoff = nova_get_block_off(sb,
+				      free_list->parity_start + strp_block_off,
+				      NOVA_BLOCK_TYPE_4K);
 
-	/* Range test */
-	if (((blocknr - free_list->block_start) >> BLOCK_SHIFT) >=
-	    free_list->num_parity_blocks) {
-		nova_dbg(
-			"%s: Invalid blocknr %lu, free list cpu %d socket %d\n",
-			__func__, blocknr, cpu, socket);
-		return NULL;
-	}
-
-	data_csum_addr =
-		(u8 *)nova_get_virt_addr_from_offset(sb, blockoff) +
-		((blocknr - free_list->block_start) << NOVA_STRIPE_SHIFT);
+	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff);
 
 	return data_csum_addr;
 }
@@ -960,10 +942,13 @@ static inline int nova_get_nsocket(struct nova_sb_info *sbi,
 
 #include "delegation.h"
 
+/*
+ * socket: kmem_dest fall in which socket
+ */
 static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
-					void *ubuf_src, size_t bytes, int zero,
-					int flush_cache, int sfence,
-					long *issued_cnt,
+					void *kubuf_src, size_t bytes,
+					int socket, int zero, int flush_cache,
+					int sfence, long *issued_cnt,
 					struct nova_notifyer *completed_cnt,
 					int wait_hint)
 {
@@ -983,19 +968,21 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 		} else {
 			nova_dbg_verbose(
 				"do memcpy_to_pmem_nocache from %#lx to %#lx\n",
-				(unsigned long)ubuf_src,
+				(unsigned long)kubuf_src,
 				(unsigned long)kmem_dest);
-			left = memcpy_to_pmem_nocache(kmem_dest, ubuf_src,
+			left = memcpy_to_pmem_nocache(kmem_dest, kubuf_src,
 						      bytes);
 		}
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
 		nova_dbg_verbose("do delegation\n");
 		NOVA_START_TIMING(do_delegation_w_t, delegation_time);
-		left = nova_do_write_delegation(
-			NOVA_SB(sb), current->mm, (unsigned long)ubuf_src,
-			(unsigned long)kmem_dest, bytes, zero, flush_cache,
-			sfence, issued_cnt, completed_cnt, wait_hint);
+		left = nova_do_write_delegation(NOVA_SB(sb), current->mm,
+						(unsigned long)kubuf_src,
+						(unsigned long)kmem_dest, bytes,
+						socket, zero, flush_cache,
+						sfence, issued_cnt,
+						completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_w_t, delegation_time);
 	}
 	nova_memlock_range(sb, kmem_dest, bytes, &irq_flags);
@@ -1003,9 +990,12 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 	return left;
 }
 
+/*
+ * socket: kmem_src fall in which socket
+ */
 static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
-				       void *kmem_src, size_t bytes, int zero,
-				       long *issued_cnt,
+				       void *kmem_src, size_t bytes, int socket,
+				       int zero, long *issued_cnt,
 				       struct nova_notifyer *completed_cnt,
 				       int wait_hint)
 {
@@ -1035,8 +1025,8 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 		left = nova_do_read_delegation(NOVA_SB(sb), current->mm,
 					       (unsigned long)ubuf_dest,
 					       (unsigned long)kmem_src, bytes,
-					       zero, issued_cnt, completed_cnt,
-					       wait_hint);
+					       socket, zero, issued_cnt,
+					       completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_r_t, delegation_time);
 	}
 
@@ -1108,7 +1098,9 @@ int nova_check_overlap_vmas(struct super_block *sb,
 			    struct nova_inode_info_header *sih,
 			    unsigned long pgoff, unsigned long num_pages);
 int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
-				 loff_t pos, size_t count, void *kmem,
+				 loff_t pos, size_t count,
+				 unsigned long blocknr, int socket,
+				 void *ubuf_copy, int *head, int *tail,
 				 long *issued_cnt,
 				 struct nova_notifyer *completed_cnt);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
@@ -1135,7 +1127,8 @@ int nova_append_dentry(struct super_block *sb, struct nova_inode *pi,
 		       unsigned short de_len, struct nova_inode_update *update,
 		       int link_change, u64 epoch_id);
 int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
-				 u64 self_ino, u64 parent_ino, u64 epoch_id);
+				 struct nova_inode *pic, u64 self_ino,
+				 u64 parent_ino, u64 epoch_id);
 int nova_add_dentry(struct dentry *dentry, u64 ino, int inc_link,
 		    struct nova_inode_update *update, u64 epoch_id);
 int nova_remove_dentry(struct dentry *dentry, int dec_link,
@@ -1158,6 +1151,7 @@ extern const struct file_operations nova_wrap_file_operations;
 
 /* gc.c */
 int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
+			   struct nova_inode *pic,
 			   struct nova_inode_info_header *sih, u64 curr_tail,
 			   u64 new_block, u64 alter_new_block, int num_pages,
 			   int force_thorough);

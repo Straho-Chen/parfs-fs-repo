@@ -8,6 +8,8 @@ struct free_list {
 	struct nova_range_node *first_node; // lowest address free range
 	struct nova_range_node *last_node; // highest address free range
 
+	int cpu; // Which CPU do I belong to?
+
 	/* Where are the data checksum blocks */
 	unsigned long csum_start;
 	unsigned long replica_csum_start;
@@ -45,11 +47,11 @@ struct free_list {
 };
 
 static inline struct free_list *nova_get_free_list(struct super_block *sb,
-						   int cpu, int socket)
+						   int cpu)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 
-	return &sbi->free_lists[cpu * sbi->sockets + socket];
+	return &sbi->free_lists[cpu];
 }
 
 enum nova_alloc_direction { ALLOC_FROM_HEAD = 0, ALLOC_FROM_TAIL = 1 };
@@ -80,28 +82,24 @@ void nova_free_blocknode(struct nova_range_node *bnode);
 void nova_free_inode_node(struct nova_range_node *bnode);
 void nova_free_dir_node(struct nova_range_node *bnode);
 void nova_free_vma_item(struct super_block *sb, struct vma_item *item);
-void nova_init_blockmap(struct super_block *sb, int recovery);
-int nova_free_data_blocks(struct super_block *sb,
-			  struct nova_inode_info_header *sih,
-			  unsigned long blocknr, int num);
-int nova_free_log_blocks(struct super_block *sb,
-			 struct nova_inode_info_header *sih,
-			 unsigned long blocknr, int num);
-int nova_new_one_data_block(struct super_block *sb,
-			    struct nova_inode_info_header *sih,
-			    unsigned long *blocknr, int zero, int cpu,
-			    enum nova_alloc_direction from_tail);
-int nova_new_data_blocks(struct super_block *sb,
-			 struct nova_inode_info_header *sih,
-			 unsigned long *blocknr, unsigned long start_blk,
-			 unsigned int num, enum nova_alloc_init zero, int cpu,
-			 enum nova_alloc_direction from_tail);
-int nova_new_log_blocks(struct super_block *sb,
-			struct nova_inode_info_header *sih,
-			unsigned long *blocknr, unsigned int num,
-			enum nova_alloc_init zero, int cpu,
-			enum nova_alloc_direction from_tail);
-unsigned long nova_count_free_blocks(struct super_block *sb);
+extern void nova_init_blockmap(struct super_block *sb, int recovery);
+extern int nova_free_data_blocks(struct super_block *sb,
+				 struct nova_inode_info_header *sih,
+				 unsigned long blocknr, int num);
+extern int nova_free_log_blocks(struct super_block *sb,
+				struct nova_inode_info_header *sih,
+				unsigned long blocknr, int num);
+extern int nova_new_data_blocks(struct super_block *sb,
+				struct nova_inode_info_header *sih,
+				unsigned long *blocknr, unsigned long start_blk,
+				unsigned int num, enum nova_alloc_init zero,
+				int cpu, enum nova_alloc_direction from_tail);
+extern int nova_new_log_blocks(struct super_block *sb,
+			       struct nova_inode_info_header *sih,
+			       unsigned long *blocknr, unsigned int num,
+			       enum nova_alloc_init zero, int cpu,
+			       enum nova_alloc_direction from_tail);
+extern unsigned long nova_count_free_blocks(struct super_block *sb);
 int nova_search_inodetree(struct nova_sb_info *sbi, unsigned long ino,
 			  struct nova_range_node **ret_node);
 int nova_insert_blocktree(struct rb_root *tree,
@@ -112,11 +110,12 @@ int nova_find_free_slot(struct rb_root *tree, unsigned long range_low,
 			unsigned long range_high, struct nova_range_node **prev,
 			struct nova_range_node **next);
 
-int nova_insert_range_node(struct rb_root *tree,
-			   struct nova_range_node *new_node,
-			   enum node_type type);
-int nova_find_range_node(struct rb_root *tree, unsigned long key,
-			 enum node_type type,
-			 struct nova_range_node **ret_node);
-void nova_destroy_range_node_tree(struct super_block *sb, struct rb_root *tree);
+extern int nova_insert_range_node(struct rb_root *tree,
+				  struct nova_range_node *new_node,
+				  enum node_type type);
+extern int nova_find_range_node(struct rb_root *tree, unsigned long key,
+				enum node_type type,
+				struct nova_range_node **ret_node);
+extern void nova_destroy_range_node_tree(struct super_block *sb,
+					 struct rb_root *tree);
 #endif

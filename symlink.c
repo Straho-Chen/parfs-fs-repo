@@ -29,6 +29,7 @@ int nova_block_symlink(struct super_block *sb, struct nova_inode *pi,
 {
 	struct nova_file_write_entry entry_data;
 	struct nova_inode_info *si = NOVA_I(inode);
+	struct nova_inode pic;
 	struct nova_inode_info_header *sih = &si->header;
 	struct nova_inode_update update;
 	unsigned long name_blocknr = 0;
@@ -41,6 +42,8 @@ int nova_block_symlink(struct super_block *sb, struct nova_inode *pi,
 
 	update.tail = sih->log_tail;
 	update.alter_tail = sih->alter_log_tail;
+
+	memcpy(&pic, pi, sizeof(struct nova_inode));
 
 	allocated = nova_new_data_blocks(sb, sih, &name_blocknr, 0, 1,
 					 ALLOC_INIT_ZERO, ANY_CPU,
@@ -64,7 +67,8 @@ int nova_block_symlink(struct super_block *sb, struct nova_inode *pi,
 	nova_init_file_write_entry(sb, sih, &entry_data, epoch_id, 0, 1,
 				   name_blocknr, time, len + 1);
 
-	ret = nova_append_file_write_entry(sb, pi, inode, &entry_data, &update);
+	ret = nova_append_file_write_entry(sb, pi, &pic, inode, &entry_data,
+					   &update);
 	if (ret) {
 		nova_dbg("%s: append file write entry failed %d\n", __func__,
 			 ret);
@@ -73,7 +77,7 @@ int nova_block_symlink(struct super_block *sb, struct nova_inode *pi,
 	}
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	nova_update_inode(sb, inode, pi, &update, 1);
+	nova_update_inode(sb, inode, pi, &pic, &update, 1);
 	nova_memlock_inode(sb, pi, &irq_flags);
 	sih->trans_id++;
 

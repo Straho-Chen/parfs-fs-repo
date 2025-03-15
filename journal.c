@@ -496,7 +496,7 @@ int nova_lite_journal_hard_init(struct super_block *sb)
 		if (allocated != 1 || blocknr == 0)
 			return -ENOSPC;
 
-		block = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_4K);
+		block = nova_get_block_off(sb, blocknr, sih.i_blk_type);
 		nova_memunlock_range(sb, pair, CACHELINE_SIZE, &irq_flags);
 		pair->journal_head = pair->journal_tail = block;
 		nova_flush_buffer(pair, CACHELINE_SIZE, 0);

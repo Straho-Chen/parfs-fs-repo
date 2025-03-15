@@ -301,6 +301,7 @@ static int nova_gc_assign_new_entry(struct super_block *sb,
 /* Copy live log entries to the new log and atomically replace the old log */
 static unsigned long
 nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
+			   struct nova_inode *pic,
 			   struct nova_inode_info_header *sih,
 			   unsigned long blocks, unsigned long checked_pages)
 {
@@ -358,12 +359,12 @@ nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 		}
 
 		length = 0;
-		ret = curr_log_entry_invalid(sb, pi, sih, curr_p, &length);
+		ret = curr_log_entry_invalid(sb, pic, sih, curr_p, &length);
 		if (!ret) {
 			extended = 0;
-			new_curr = nova_get_append_head(sb, pi, sih, new_curr,
-							length, MAIN_LOG, 1,
-							&extended);
+			new_curr = nova_get_append_head(sb, pi, pic, sih,
+							new_curr, length,
+							MAIN_LOG, 1, &extended);
 			if (extended)
 				blocks++;
 			/* Copy entry to the new log */
@@ -405,7 +406,7 @@ nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 	/* Step 2: Atomically switch to the new log */
 	nova_memunlock_inode(sb, pi, &irq_flags);
 	pi->log_head = new_head;
-	nova_update_inode_checksum(pi);
+	nova_update_inode_checksum(pic, 0);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
 			sb, sih->alter_pi_addr);
@@ -441,11 +442,10 @@ out:
 }
 
 /* Copy original log to alternate log */
-static unsigned long
-nova_inode_alter_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
-				 struct nova_inode_info_header *sih,
-				 unsigned long blocks,
-				 unsigned long checked_pages)
+static unsigned long nova_inode_alter_log_thorough_gc(
+	struct super_block *sb, struct nova_inode *pi, struct nova_inode *pic,
+	struct nova_inode_info_header *sih, unsigned long blocks,
+	unsigned long checked_pages)
 {
 	struct nova_inode_log_page *alter_curr_page = NULL;
 	struct nova_inode *alter_pi;
@@ -545,12 +545,12 @@ nova_inode_alter_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 
 	/* Step 3: Atomically switch to the new log */
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	pi->alter_log_head = new_head;
-	nova_update_inode_checksum(pi);
+	pic->alter_log_head = new_head;
+	nova_update_inode_checksum(pic, 0);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
 			sb, sih->alter_pi_addr);
-		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
+		memcpy_to_pmem_nocache(alter_pi, pic, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
 	sih->alter_log_head = new_head;
@@ -585,6 +585,7 @@ out:
  * Scan pages in the log and remove those with no valid log entries.
  */
 int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
+			   struct nova_inode *pic,
 			   struct nova_inode_info_header *sih, u64 curr_tail,
 			   u64 new_block, u64 alter_new_block, int num_pages,
 			   int force_thorough)
@@ -642,7 +643,7 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 				break;
 		}
 		nova_dbg_verbose("curr 0x%llx, next 0x%llx\n", curr, next);
-		if (curr_page_invalid(sb, pi, sih, curr)) {
+		if (curr_page_invalid(sb, pic, sih, curr)) {
 			nova_dbg_verbose("curr page %p invalid\n", curr_page);
 			if (curr == sih->log_head) {
 				/* Free first page later */
@@ -687,13 +688,14 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 	alter_curr = sih->alter_log_head;
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	pi->log_head = possible_head;
-	pi->alter_log_head = alter_possible_head;
-	nova_update_inode_checksum(pi);
+	pic->log_head = possible_head;
+	pic->alter_log_head = alter_possible_head;
+	nova_update_inode_checksum(pi, 0);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
 			sb, sih->alter_pi_addr);
-		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
+		memcpy_to_pmem_nocache(alter_pi, pic,
+				       sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
 	sih->log_head = possible_head;
@@ -733,10 +735,10 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 		nova_dbg_verbose(
 			"Thorough GC for inode %lu: checked pages %lu, valid pages %lu\n",
 			sih->ino, checked_pages, blocks);
-		blocks = nova_inode_log_thorough_gc(sb, pi, sih, blocks,
+		blocks = nova_inode_log_thorough_gc(sb, pi, pic, sih, blocks,
 						    checked_pages);
 		if (metadata_csum)
-			nova_inode_alter_log_thorough_gc(sb, pi, sih, blocks,
+			nova_inode_alter_log_thorough_gc(sb, pi, pic, sih, blocks,
 							 checked_pages);
 	}
 

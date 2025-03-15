@@ -211,12 +211,12 @@ static int nova_get_nvmm_info(struct super_block *sb, struct nova_sb_info *sbi)
 		sbi->num_blocks += size_in_blocks;
 		sbi->initsize += pmem_ar_dev.size_in_bytes[i];
 
-		nova_dbg("heap socket: %d, start_block: %lu, end_block: %lu\n",
+		nova_dbg_verbose("head socket: %d, start_block: %lu, end_block: %lu\n",
 			 i, sbi->block_info[i].start_block,
 			 sbi->block_info[i].end_block);
 	}
 
-	nova_dbg("%s: dev %s, phys_addr 0x%llx, virt_addr 0x%lx, size %ld\n",
+	nova_dbg_verbose("%s: dev %s, phys_addr 0x%llx, virt_addr 0x%lx, size %ld\n",
 		 __func__, pmem_ar_dev.gd->disk_name, sbi->phys_addr,
 		 (unsigned long)sbi->virt_addr, sbi->initsize);
 
@@ -469,6 +469,7 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 {
 	unsigned long blocksize;
 	struct nova_inode *root_i, *pi;
+	struct nova_inode root_ic;
 	struct nova_super_block *super;
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_update update;
@@ -478,10 +479,6 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 
 	NOVA_START_TIMING(new_init_t, init_time);
 	nova_info("creating an empty nova of size %lu\n", size);
-
-	nova_dbg_verbose("nova: Default block size set to 4K\n");
-	sbi->blocksize = blocksize = NOVA_DEF_BLOCK_SIZE_4K;
-	nova_set_blocksize(sb, sbi->blocksize);
 
 	if (!nova_check_size(sb, size)) {
 		nova_warn("Specified NOVA size too small 0x%lx.\n", size);
@@ -505,7 +502,8 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
 
 	memset(&update, 0, sizeof(struct nova_inode_update));
-	nova_update_inode(sb, &sbi->snapshot_si->vfs_inode, pi, &update, 1);
+	nova_update_inode(sb, &sbi->snapshot_si->vfs_inode, pi, NULL, &update,
+			  1);
 
 	nova_memlock_reserved(sb, super, &irq_flags);
 
@@ -553,8 +551,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	nova_memlock_inode(sb, root_i, &irq_flags);
 
 	epoch_id = nova_get_epoch_id(sb);
-	nova_append_dir_init_entries(sb, root_i, NOVA_ROOT_INO, NOVA_ROOT_INO,
-				     epoch_id);
+	memcpy(&root_ic, root_i, sizeof(struct nova_inode));
+	nova_append_dir_init_entries(sb, root_i, &root_ic, NOVA_ROOT_INO,
+				     NOVA_ROOT_INO, epoch_id);
+	memcpy_to_pmem_nocache(root_i, &root_ic, sizeof(struct nova_inode));
 
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
@@ -575,6 +575,9 @@ static inline void set_default_opts(struct nova_sb_info *sbi)
 	nova_info("%d cpus online\n", sbi->cpus);
 	sbi->map_id = 0;
 	sbi->snapshot_si = NULL;
+	sbi->blocksize = PAGE_SIZE;
+	sbi->blocksize_bits = PAGE_SHIFT;
+	nova_set_blocksize(sbi->sb, sbi->blocksize);
 }
 
 static void nova_root_check(struct super_block *sb, struct nova_inode *root_pi)

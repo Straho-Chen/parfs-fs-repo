@@ -249,6 +249,7 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 	struct super_block *sb = inode->i_sb;
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode *pi;
+	struct nova_inode pic;
 	struct nova_file_write_entry *entry;
 	struct nova_file_write_entry *entryc, entry_copy;
 	struct nova_file_write_entry entry_data;
@@ -295,6 +296,7 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 	inode_lock(inode);
 
 	pi = nova_get_inode(sb, inode);
+	memcpy(&pic, pi, sizeof(struct nova_inode));
 
 	nova_dbg_verbose("%s: inode %lu, start pgoff %lu, end pgoff %lu\n",
 			 __func__, inode->i_ino, start_blk, end_blk);
@@ -397,8 +399,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 					   entry_pgoff, copy_blocks, blocknr,
 					   time, entry_size);
 
-		ret = nova_append_file_write_entry(sb, pi, inode, &entry_data,
-						   &update);
+		ret = nova_append_file_write_entry(sb, pi, &pic, inode,
+						   &entry_data, &update);
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);
 			ret = -ENOSPC;
@@ -413,13 +415,13 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 		goto out;
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	nova_update_inode(sb, inode, pi, &update, 1);
+	nova_update_inode(sb, inode, pi, &pic, &update, 1);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
-	/* Update file tree */
-	ret = nova_reassign_file_tree(sb, sih, begin_tail);
-	if (ret)
-		goto out;
+	// /* Update file tree */
+	// ret = nova_reassign_file_tree(sb, sih, begin_tail);
+	// if (ret)
+	// 	goto out;
 
 	/* Update pfn and prot */
 	ret = nova_dax_cow_mmap_handler(sb, vma, sih, begin_tail);

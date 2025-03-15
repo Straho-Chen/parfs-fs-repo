@@ -160,7 +160,7 @@ static int nova_rebuild_inode_finish(struct super_block *sb,
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
 	nova_update_inode_with_rebuild(sb, reb, pi);
-	nova_update_inode_checksum(pi);
+	nova_update_inode_checksum(pi, 1);
 	if (metadata_csum) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
 			sb, sih->alter_pi_addr);

@@ -290,6 +290,7 @@ int nova_free_contiguous_log_blocks(struct super_block *sb,
 				    struct nova_inode_info_header *sih,
 				    u64 head);
 u64 nova_get_append_head(struct super_block *sb, struct nova_inode *pi,
+			 struct nova_inode *pic,
 			 struct nova_inode_info_header *sih, u64 tail,
 			 size_t size, int log_id, int thorough_gc,
 			 int *extended);
@@ -312,7 +313,7 @@ int nova_append_mmap_entry(struct super_block *sb, struct nova_inode *pi,
 			   struct nova_inode_update *update,
 			   struct vma_item *item);
 int nova_append_file_write_entry(struct super_block *sb, struct nova_inode *pi,
-				 struct inode *inode,
+				 struct nova_inode *pic, struct inode *inode,
 				 struct nova_file_write_entry *data,
 				 struct nova_inode_update *update);
 int nova_append_snapshot_info_entry(struct super_block *sb,

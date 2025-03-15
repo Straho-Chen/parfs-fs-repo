@@ -162,8 +162,7 @@ static inline void nova_memunlock_reserved(struct super_block *sb,
 
 	if (nova_is_protected(sb))
 		__nova_memunlock_range(
-			ps, sbi->head_reserved_blocks * NOVA_DEF_BLOCK_SIZE_4K,
-			flags);
+			ps, sbi->head_reserved_blocks * PAGE_SIZE, flags);
 }
 
 static inline void nova_memlock_reserved(struct super_block *sb,
@@ -173,32 +172,31 @@ static inline void nova_memlock_reserved(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 
 	if (nova_is_protected(sb))
-		__nova_memlock_range(
-			ps, sbi->head_reserved_blocks * NOVA_DEF_BLOCK_SIZE_4K,
-			flags);
+		__nova_memlock_range(ps, sbi->head_reserved_blocks * PAGE_SIZE,
+				     flags);
 }
 
 static inline void nova_memunlock_journal(struct super_block *sb,
 					  unsigned long *flags)
 {
-	void *addr = nova_get_virt_addr_from_offset(sb, NOVA_DEF_BLOCK_SIZE_4K *
-								JOURNAL_START);
+	void *addr =
+		nova_get_virt_addr_from_offset(sb, PAGE_SIZE * JOURNAL_START);
 
-	if (nova_range_check(sb, addr, NOVA_DEF_BLOCK_SIZE_4K))
+	if (nova_range_check(sb, addr, PAGE_SIZE))
 		return;
 
 	if (nova_is_protected(sb))
-		__nova_memunlock_range(addr, NOVA_DEF_BLOCK_SIZE_4K, flags);
+		__nova_memunlock_range(addr, PAGE_SIZE, flags);
 }
 
 static inline void nova_memlock_journal(struct super_block *sb,
 					unsigned long *flags)
 {
-	void *addr = nova_get_virt_addr_from_offset(sb, NOVA_DEF_BLOCK_SIZE_4K *
-								JOURNAL_START);
+	void *addr =
+		nova_get_virt_addr_from_offset(sb, PAGE_SIZE * JOURNAL_START);
 
 	if (nova_is_protected(sb))
-		__nova_memlock_range(addr, NOVA_DEF_BLOCK_SIZE_4K, flags);
+		__nova_memlock_range(addr, PAGE_SIZE, flags);
 }
 
 static inline void nova_memunlock_inode(struct super_block *sb,

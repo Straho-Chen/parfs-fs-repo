@@ -19,15 +19,13 @@ DEFINE_PER_CPU(struct nova_notifyer_array, completed_cnt);
 unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 				     struct mm_struct *mm, unsigned long uaddr,
 				     unsigned long kaddr, unsigned long bytes,
-				     int zero, long *issued_cnt,
+				     int socket, int zero, long *issued_cnt,
 				     struct nova_notifyer *completed_cnt,
 				     int wait_hint)
 {
-	int socket;
 	unsigned int ret = 0;
 	struct nova_delegation_request request;
 	unsigned long i = 0, uaddr_end = 0;
-	int block;
 	int thread;
 	INIT_TIMING(prefault_time);
 	INIT_TIMING(send_request_time);
@@ -74,11 +72,6 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
    * kernel page.
    */
 
-	/* which socket to delegate */
-
-	block = nova_get_block_from_addr(sbi, (void *)kaddr);
-	socket = nova_block_to_socket(sbi, block);
-
 	/* inc issued cnt */
 	issued_cnt[socket]++;
 
@@ -117,16 +110,14 @@ int nova_no_optimize;
 unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 				      struct mm_struct *mm, unsigned long uaddr,
 				      unsigned long kaddr, unsigned long bytes,
-				      int zero, int flush_cache, int sfence,
-				      long *issued_cnt,
+				      int socket, int zero, int flush_cache,
+				      int sfence, long *issued_cnt,
 				      struct nova_notifyer *completed_cnt,
 				      int wait_hint)
 {
-	int socket;
 	struct nova_delegation_request request;
 	int ret = 0;
 	// unsigned long i = 0, uaddr_end = 0;
-	int block;
 	int thread;
 
 	// INIT_TIMING(prefault_time);
@@ -179,10 +170,6 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
    * We have ensured that [kaddr, kaddr + bytes - 1) falls in the same
    * kernel page.
    */
-
-	/* which socket to delegate */
-	block = nova_get_block_from_addr(sbi, (void *)kaddr);
-	socket = nova_block_to_socket(sbi, block);
 
 	/* inc issued cnt */
 	issued_cnt[socket]++;

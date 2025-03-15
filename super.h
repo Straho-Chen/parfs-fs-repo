@@ -123,6 +123,7 @@ struct nova_sb_info {
 	/* Mount options */
 	unsigned long bpi;
 	unsigned long blocksize;
+	unsigned blocksize_bits;
 	unsigned long initsize;
 	unsigned long s_mount_opt;
 	kuid_t uid; /* Mount uid for root directory */

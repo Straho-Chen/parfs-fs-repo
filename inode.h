@@ -8,6 +8,14 @@ struct nova_inode;
 #include "stats.h"
 #include "log.h"
 
+/*
+ * Play with this knob to change the default block type.
+ * By changing the NOVA_DEFAULT_BLOCK_TYPE to 32K/2M/1G,
+ * we should get pretty good coverage in testing.
+ */
+#define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_4K
+// #define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_32K
+
 enum nova_new_inode_type {
 	TYPE_CREATE = 0,
 	TYPE_MKNOD,
@@ -168,11 +176,11 @@ static inline int nova_update_alter_inode(struct super_block *sb,
 	if (!alter_pi)
 		return -EINVAL;
 
-	// memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
+	memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	return 0;
 }
 
-static inline int nova_update_inode_checksum(struct nova_inode *pi)
+static inline int nova_update_inode_checksum(struct nova_inode *pi, int faf)
 {
 	u32 crc = 0;
 
@@ -184,7 +192,8 @@ static inline int nova_update_inode_checksum(struct nova_inode *pi)
 
 	pi->csum = crc;
 persist:
-	// nova_flush_buffer(pi, sizeof(struct nova_inode), 1);
+	if (faf)
+		nova_flush_buffer(pi, sizeof(struct nova_inode), 1);
 	return 0;
 }
 
@@ -204,20 +213,24 @@ static inline int nova_check_inode_checksum(struct nova_inode *pi)
 		return 1;
 }
 
-static inline void nova_update_tail(struct nova_inode *pi, u64 new_tail)
+static inline void nova_update_tail(struct nova_inode *pi, u64 new_tail,
+				    int faf)
 {
 	INIT_TIMING(update_time);
 
 	NOVA_START_TIMING(update_tail_t, update_time);
 
-	// PERSISTENT_BARRIER();
+	if (faf)
+		PERSISTENT_BARRIER();
 	pi->log_tail = new_tail;
-	// nova_flush_buffer(&pi->log_tail, CACHELINE_SIZE, 1);
+	if (faf)
+		nova_flush_buffer(&pi->log_tail, CACHELINE_SIZE, 1);
 
 	NOVA_END_TIMING(update_tail_t, update_time);
 }
 
-static inline void nova_update_alter_tail(struct nova_inode *pi, u64 new_tail)
+static inline void nova_update_alter_tail(struct nova_inode *pi, u64 new_tail,
+					  int faf)
 {
 	INIT_TIMING(update_time);
 
@@ -226,9 +239,11 @@ static inline void nova_update_alter_tail(struct nova_inode *pi, u64 new_tail)
 
 	NOVA_START_TIMING(update_tail_t, update_time);
 
-	// PERSISTENT_BARRIER();
+	if (faf)
+		PERSISTENT_BARRIER();
 	pi->alter_log_tail = new_tail;
-	// nova_flush_buffer(&pi->alter_log_tail, CACHELINE_SIZE, 1);
+	if (faf)
+		nova_flush_buffer(&pi->alter_log_tail, CACHELINE_SIZE, 1);
 
 	NOVA_END_TIMING(update_tail_t, update_time);
 }
@@ -236,21 +251,40 @@ static inline void nova_update_alter_tail(struct nova_inode *pi, u64 new_tail)
 /* Update inode tails and checksums */
 static inline void nova_update_inode(struct super_block *sb,
 				     struct inode *inode, struct nova_inode *pi,
+				     struct nova_inode *pic,
 				     struct nova_inode_update *update,
 				     int update_alter)
 {
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
+	int faf;
 
 	sih->log_tail = update->tail;
 	sih->alter_log_tail = update->alter_tail;
-	nova_update_tail(pi, update->tail);
-	if (metadata_csum)
-		nova_update_alter_tail(pi, update->alter_tail);
 
-	nova_update_inode_checksum(pi);
-	if (inode && update_alter)
-		nova_update_alter_inode(sb, inode, pi);
+	if (!pic) {
+		// write to nvm directly
+		faf = 1;
+		nova_update_tail(pi, update->tail, faf);
+		if (metadata_csum)
+			nova_update_alter_tail(pi, update->alter_tail, faf);
+
+		nova_update_inode_checksum(pi, faf);
+		if (inode && update_alter)
+			nova_update_alter_inode(sb, inode, pi);
+	} else {
+		// write to dram copy, no need to flush
+		faf = 0;
+		nova_update_tail(pic, update->tail, faf);
+		if (metadata_csum)
+			nova_update_alter_tail(pic, update->alter_tail, faf);
+
+		nova_update_inode_checksum(pic, faf);
+		if (inode && update_alter)
+			nova_update_alter_inode(sb, inode, pic);
+
+		memcpy_to_pmem_nocache(pi, pic, sizeof(struct nova_inode));
+	}
 }
 
 static inline struct inode_table *nova_get_inode_table(struct super_block *sb,
@@ -268,8 +302,7 @@ static inline struct inode_table *nova_get_inode_table(struct super_block *sb,
 		table_start = INODE_TABLE1_START;
 
 	return (struct inode_table *)((char *)nova_get_virt_addr_from_offset(
-					      sb, NOVA_DEF_BLOCK_SIZE_4K *
-							  table_start) +
+					      sb, PAGE_SIZE * table_start) +
 				      cpu * CACHELINE_SIZE);
 }
 
@@ -287,7 +320,7 @@ static inline uint32_t nova_inode_blk_size(struct nova_inode_info_header *sih)
 static inline u64 nova_get_reserved_inode_addr(struct super_block *sb,
 					       u64 inode_number)
 {
-	return (NOVA_DEF_BLOCK_SIZE_4K * RESERVE_INODE_START) +
+	return (PAGE_SIZE * RESERVE_INODE_START) +
 	       inode_number * NOVA_INODE_SIZE;
 }
 

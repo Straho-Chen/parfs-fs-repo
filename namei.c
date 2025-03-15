@@ -95,10 +95,10 @@ static void nova_lite_transaction_for_new_inode(
 	// update this functions so the changes will be roll back on failure.
 	journal_tail = nova_create_inode_transaction(sb, inode, dir, cpu, 1, 0);
 
-	nova_update_inode(sb, dir, pidir, update, 0);
+	nova_update_inode(sb, dir, pidir, NULL, update, 0);
 
 	pi->valid = 1;
-	nova_update_inode_checksum(pi);
+	nova_update_inode_checksum(pi, 1);
 
 	nova_commit_lite_transaction(sb, journal_tail, cpu);
 	nova_memlock_journal(sb, &irq_flags);
@@ -321,9 +321,9 @@ static void nova_lite_transaction_for_time_and_link(
 		pi->valid = 0;
 		pi->delete_epoch_id = epoch_id;
 	}
-	nova_update_inode(sb, inode, pi, update, 0);
+	nova_update_inode(sb, inode, pi, NULL, update, 0);
 
-	nova_update_inode(sb, dir, pidir, update_dir, 0);
+	nova_update_inode(sb, dir, pidir, NULL, update_dir, 0);
 
 	PERSISTENT_BARRIER();
 
@@ -474,6 +474,7 @@ static int nova_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode;
 	struct nova_inode *pidir, *pi;
+	struct nova_inode pic;
 	struct nova_inode_info *si, *sidir;
 	struct nova_inode_info_header *sih = NULL;
 	struct nova_inode_update update;
@@ -513,8 +514,10 @@ static int nova_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	}
 
 	pi = nova_get_inode(sb, inode);
-	err = nova_append_dir_init_entries(sb, pi, inode->i_ino, dir->i_ino,
-					   epoch_id);
+	memcpy(&pic, pi, sizeof(struct nova_inode));
+	err = nova_append_dir_init_entries(sb, pi, &pic, inode->i_ino,
+					   dir->i_ino, epoch_id);
+	memcpy_to_pmem_nocache(pi, &pic, sizeof(struct nova_inode));
 	if (err < 0)
 		goto out_err;
 
@@ -663,6 +666,7 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode *old_pi = NULL, *new_pi = NULL;
 	struct nova_inode *new_pidir = NULL, *old_pidir = NULL;
+	struct nova_inode old_pic, new_pic;
 	struct nova_dentry *father_entry = NULL;
 	struct nova_dentry *father_entryc, entry_copy;
 	char *head_addr = NULL;
@@ -728,11 +732,12 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	old_pidir = nova_get_inode(sb, old_dir);
 
 	old_pi = nova_get_inode(sb, old_inode);
+	memcpy(&old_pic, old_pi, sizeof(struct nova_inode));
 	inode_set_ctime_current(old_inode);
 	update_old.tail = 0;
 	update_old.alter_tail = 0;
-	err = nova_append_link_change_entry(sb, old_pi, old_inode, &update_old,
-					    &old_linkc1, epoch_id);
+	err = nova_append_link_change_entry(sb, &old_pic, old_inode,
+					    &update_old, &old_linkc1, epoch_id);
 	if (err)
 		goto out;
 
@@ -800,6 +805,7 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 
 	if (new_inode) {
 		new_pi = nova_get_inode(sb, new_inode);
+		memcpy(&new_pic, new_pi, sizeof(struct nova_inode));
 		inode_set_ctime_current(new_inode);
 
 		if (S_ISDIR(old_inode->i_mode)) {
@@ -811,7 +817,7 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 
 		update_new.tail = 0;
 		update_new.alter_tail = 0;
-		err = nova_append_link_change_entry(sb, new_pi, new_inode,
+		err = nova_append_link_change_entry(sb, &new_pic, new_inode,
 						    &update_new, &old_linkc2,
 						    epoch_id);
 		if (err)
@@ -832,11 +838,12 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 		nova_reassign_logentry(sb, update_dir_new.create_dentry,
 				       DIR_LOG);
 	nova_reassign_logentry(sb, update_dir_old.create_dentry, DIR_LOG);
-	nova_update_inode(sb, old_inode, old_pi, &update_old, 0);
-	nova_update_inode(sb, old_dir, old_pidir, &update_dir_old, 0);
+	nova_update_inode(sb, old_inode, old_pi, &old_pic, &update_old, 0);
+	nova_update_inode(sb, old_dir, old_pidir, NULL, &update_dir_old, 0);
 
 	if (old_pidir != new_pidir)
-		nova_update_inode(sb, new_dir, new_pidir, &update_dir_new, 0);
+		nova_update_inode(sb, new_dir, new_pidir, NULL, &update_dir_new,
+				  0);
 
 	if (change_parent && father_entry) {
 		father_entry->ino = cpu_to_le64(new_dir->i_ino);
@@ -849,7 +856,8 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 			new_pi->valid = 0;
 			new_pi->delete_epoch_id = epoch_id;
 		}
-		nova_update_inode(sb, new_inode, new_pi, &update_new, 0);
+		nova_update_inode(sb, new_inode, new_pi, &new_pic, &update_new,
+				  0);
 	}
 
 	PERSISTENT_BARRIER();

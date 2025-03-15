@@ -388,7 +388,7 @@ static inline void check_eof_blocks(struct super_block *sb,
 		    (sih->i_blocks << sb->s_blocksize_bits)) {
 		nova_memunlock_inode(sb, pi, &irq_flags);
 		pi->i_flags &= cpu_to_le32(~NOVA_EOFBLOCKS_FL);
-		nova_update_inode_checksum(pi);
+		nova_update_inode_checksum(pi, 1);
 		nova_update_alter_inode(sb, inode, pi);
 		nova_memlock_inode(sb, pi, &irq_flags);
 	}
@@ -866,7 +866,7 @@ static int nova_free_inode_resource(struct super_block *sb,
 		nova_dbg("%s: inode %lu still valid\n", __func__, sih->ino);
 		pi->valid = 0;
 	}
-	nova_update_inode_checksum(pi);
+	nova_update_inode_checksum(pi, 1);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
 			sb, sih->alter_pi_addr);
@@ -1226,7 +1226,7 @@ void nova_dirty_inode(struct inode *inode, int _flags)
 	 */
 	nova_memunlock_inode(sb, pi, &irq_flags);
 	pi->i_atime = cpu_to_le32(inode->i_atime.tv_sec);
-	nova_update_inode_checksum(pi);
+	nova_update_inode_checksum(pi, 1);
 	nova_update_alter_inode(sb, inode, pi);
 	nova_memlock_inode(sb, pi, &irq_flags);
 	/* Relax atime persistency */

@@ -54,8 +54,6 @@
  */
 #define NOVA_LINK_MAX 32000
 
-#define NOVA_DEF_BLOCK_SIZE_4K 4096
-
 #define NOVA_INODE_BITS 7
 #define NOVA_INODE_SIZE 128 /* must be power of two */
 
@@ -71,14 +69,6 @@
 #define NOVA_BLOCK_TYPE_MAX 4
 
 #define META_BLK_SHIFT 9
-
-/*
- * Play with this knob to change the default block type.
- * By changing the NOVA_DEFAULT_BLOCK_TYPE to 32K/2M/1G,
- * we should get pretty good coverage in testing.
- */
-#define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_4K
-// #define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_32K
 
 #define PAGE_SHIFT_32K 15
 #define PAGE_SHIFT_2M 21

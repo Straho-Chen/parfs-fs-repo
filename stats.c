@@ -202,7 +202,7 @@ static void nova_print_alloc_stats(struct super_block *sb)
 	unsigned long freed_log_pages = 0;
 	unsigned long free_data_count = 0;
 	unsigned long freed_data_pages = 0;
-	int i, j;
+	int i;
 
 	nova_info("=========== NOVA allocation stats ===========\n");
 	nova_info("Alloc %llu, alloc steps %llu, average %llu\n",
@@ -227,18 +227,16 @@ static void nova_print_alloc_stats(struct super_block *sb)
 			0);
 
 	for (i = 0; i < sbi->cpus; i++) {
-		for (j = 0; j < sbi->sockets; j++) {
-			free_list = nova_get_free_list(sb, i, j);
+		free_list = nova_get_free_list(sb, i);
 
-			alloc_log_count += free_list->alloc_log_count;
-			alloc_log_pages += free_list->alloc_log_pages;
-			alloc_data_count += free_list->alloc_data_count;
-			alloc_data_pages += free_list->alloc_data_pages;
-			free_log_count += free_list->free_log_count;
-			freed_log_pages += free_list->freed_log_pages;
-			free_data_count += free_list->free_data_count;
-			freed_data_pages += free_list->freed_data_pages;
-		}
+		alloc_log_count += free_list->alloc_log_count;
+		alloc_log_pages += free_list->alloc_log_pages;
+		alloc_data_count += free_list->alloc_data_count;
+		alloc_data_pages += free_list->alloc_data_pages;
+		free_log_count += free_list->free_log_count;
+		freed_log_pages += free_list->freed_log_pages;
+		free_data_count += free_list->free_data_count;
+		freed_data_pages += free_list->freed_data_pages;
 	}
 
 	nova_info(
@@ -359,7 +357,7 @@ static void nova_clear_IO_stats(struct super_block *sb)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct free_list *free_list;
-	int i, j;
+	int i;
 	int cpu;
 
 	for (i = 0; i < STATS_NUM; i++) {
@@ -369,18 +367,16 @@ static void nova_clear_IO_stats(struct super_block *sb)
 	}
 
 	for (i = 0; i < sbi->cpus; i++) {
-		for (j = 0; j < sbi->sockets; j++) {
-			free_list = nova_get_free_list(sb, i, j);
+		free_list = nova_get_free_list(sb, i);
 
-			free_list->alloc_log_count = 0;
-			free_list->alloc_log_pages = 0;
-			free_list->alloc_data_count = 0;
-			free_list->alloc_data_pages = 0;
-			free_list->free_log_count = 0;
-			free_list->freed_log_pages = 0;
-			free_list->free_data_count = 0;
-			free_list->freed_data_pages = 0;
-		}
+		free_list->alloc_log_count = 0;
+		free_list->alloc_log_pages = 0;
+		free_list->alloc_data_count = 0;
+		free_list->alloc_data_pages = 0;
+		free_list->free_log_count = 0;
+		free_list->freed_log_pages = 0;
+		free_list->free_data_count = 0;
+		free_list->freed_data_pages = 0;
 	}
 }
 
@@ -716,39 +712,29 @@ void nova_print_free_lists(struct super_block *sb)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct free_list *free_list;
-	int i, j;
+	int i;
 
 	nova_dbg("======== NOVA per-CPU free list allocation stats ========\n");
 	for (i = 0; i < sbi->cpus; i++) {
-		for (j = 0; j < sbi->sockets; j++) {
-			free_list = nova_get_free_list(sb, i, j);
-			nova_dbg(
-				"Free list cpu%d,socket%d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
-				i, j, free_list->block_start,
-				free_list->block_end,
-				free_list->block_end - free_list->block_start +
-					1,
-				free_list->num_free_blocks,
-				free_list->num_blocknode);
+		free_list = nova_get_free_list(sb, i);
+		nova_dbg(
+			"Free list cpu%d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
+			i, free_list->block_start, free_list->block_end,
+			free_list->block_end - free_list->block_start + 1,
+			free_list->num_free_blocks, free_list->num_blocknode);
 
-			nova_dbg(
-				"Free list cpu%d,socket%d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
-				i, j, free_list->csum_start,
-				free_list->replica_csum_start,
-				free_list->num_csum_blocks,
-				free_list->parity_start,
-				free_list->num_parity_blocks);
+		nova_dbg(
+			"Free list cpu%d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
+			i, free_list->csum_start, free_list->replica_csum_start,
+			free_list->num_csum_blocks, free_list->parity_start,
+			free_list->num_parity_blocks);
 
-			nova_dbg(
-				"Free list cpu%d,socket%d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
-				i, j, free_list->alloc_log_count,
-				free_list->alloc_log_pages,
-				free_list->alloc_data_count,
-				free_list->alloc_data_pages,
-				free_list->free_log_count,
-				free_list->freed_log_pages,
-				free_list->free_data_count,
-				free_list->freed_data_pages);
-		}
+		nova_dbg(
+			"Free list cpu%d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
+			i, free_list->alloc_log_count,
+			free_list->alloc_log_pages, free_list->alloc_data_count,
+			free_list->alloc_data_pages, free_list->free_log_count,
+			free_list->freed_log_pages, free_list->free_data_count,
+			free_list->freed_data_pages);
 	}
 }

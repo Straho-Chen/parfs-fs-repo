@@ -138,6 +138,7 @@ int nova_update_pgoff_parity(struct super_block *sb,
  * Since this part of computing is along the critical path, unroll by 8 to gain
  * performance if possible. This unrolling applies to stripe width of 8 and
  * whole block writes.
+ * calculate in inode blocksize granularity.
  */
 int nova_update_block_csum_parity(struct super_block *sb,
 				  struct nova_inode_info_header *sih, u8 *block,
@@ -148,7 +149,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	size_t csum_size = NOVA_DATA_CSUM_LEN;
 	size_t strp_size = NOVA_STRIPE_SIZE;
 	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned long strp_nr, blockoff, blocksize = nova_inode_blk_size(sih);
+	unsigned long blocksize = nova_inode_blk_size(sih);
 	void *nvmmptr, *nvmmptr1;
 	u32 crc[8];
 	u64 qwd[8], *parity = NULL;
@@ -161,9 +162,6 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	INIT_TIMING(block_csum_parity_time);
 
 	NOVA_STATS_ADD(block_csum_parity, 1);
-
-	blockoff = nova_get_block_off(sb, blocknr, sih->i_blk_type);
-	strp_nr = blockoff >> strp_shift;
 
 	strp_offset = offset & (strp_size - 1);
 	num_strps = ((strp_offset + bytes - 1) >> strp_shift) + 1;
@@ -223,8 +221,8 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			crc[6] = cpu_to_le32((u32)acc[6]);
 			crc[7] = cpu_to_le32((u32)acc[7]);
 
-			nvmmptr = nova_get_data_csum_addr(sb, strp_nr, 0);
-			nvmmptr1 = nova_get_data_csum_addr(sb, strp_nr, 1);
+			nvmmptr = nova_get_data_csum_addr(sb, blocknr, 0);
+			nvmmptr1 = nova_get_data_csum_addr(sb, blocknr, 1);
 			/* Here is small size writes. We don't call delegation write here. */
 			nova_memunlock_range(sb, nvmmptr, csum_size * 8,
 					     &irq_flags);

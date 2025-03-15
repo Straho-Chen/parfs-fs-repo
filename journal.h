@@ -40,7 +40,7 @@ nova_get_journal_pointers(struct super_block *sb, int cpu)
 
 	return (struct journal_ptr_pair
 			*)((char *)nova_get_virt_addr_from_offset(
-				   sb, NOVA_DEF_BLOCK_SIZE_4K * JOURNAL_START) +
+				   sb, PAGE_SIZE * JOURNAL_START) +
 			   cpu * CACHELINE_SIZE);
 }
 

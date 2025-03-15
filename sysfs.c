@@ -92,7 +92,7 @@ static int nova_seq_IO_show(struct seq_file *seq, void *v)
 	unsigned long freed_log_pages = 0;
 	unsigned long free_data_count = 0;
 	unsigned long freed_data_pages = 0;
-	int i, j;
+	int i;
 
 	nova_get_timing_stats();
 	nova_get_IO_stats();
@@ -100,18 +100,16 @@ static int nova_seq_IO_show(struct seq_file *seq, void *v)
 	seq_puts(seq, "============ NOVA allocation stats ============\n\n");
 
 	for (i = 0; i < sbi->cpus; i++) {
-		for (j = 0; j < sbi->sockets; j++) {
-			free_list = nova_get_free_list(sb, i, j);
+		free_list = nova_get_free_list(sb, i);
 
-			alloc_log_count += free_list->alloc_log_count;
-			alloc_log_pages += free_list->alloc_log_pages;
-			alloc_data_count += free_list->alloc_data_count;
-			alloc_data_pages += free_list->alloc_data_pages;
-			free_log_count += free_list->free_log_count;
-			freed_log_pages += free_list->freed_log_pages;
-			free_data_count += free_list->free_data_count;
-			freed_data_pages += free_list->freed_data_pages;
-		}
+		alloc_log_count += free_list->alloc_log_count;
+		alloc_log_pages += free_list->alloc_log_pages;
+		alloc_data_count += free_list->alloc_data_count;
+		alloc_data_pages += free_list->alloc_data_pages;
+		free_log_count += free_list->free_log_count;
+		freed_log_pages += free_list->freed_log_pages;
+		free_data_count += free_list->free_data_count;
+		freed_data_pages += free_list->freed_data_pages;
 	}
 
 	seq_printf(seq,
@@ -216,63 +214,54 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 	struct super_block *sb = seq->private;
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct free_list *free_list;
-	int i, j;
+	int i;
 	unsigned long log_pages = 0;
 	unsigned long data_pages = 0;
 
 	seq_puts(seq,
 		 "======== NOVA per-CPU/per-socket allocator stats ========\n");
 	for (i = 0; i < sbi->cpus; i++) {
-		for (j = 0; j < sbi->sockets; j++) {
-			free_list = nova_get_free_list(sb, i, j);
-			seq_printf(
-				seq,
-				"Free list %d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
-				i, free_list->block_start, free_list->block_end,
-				free_list->block_end - free_list->block_start +
-					1,
-				free_list->num_free_blocks,
-				free_list->num_blocknode);
+		free_list = nova_get_free_list(sb, i);
+		seq_printf(
+			seq,
+			"Free list %d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
+			i, free_list->block_start, free_list->block_end,
+			free_list->block_end - free_list->block_start + 1,
+			free_list->num_free_blocks, free_list->num_blocknode);
 
-			if (free_list->first_node) {
-				seq_printf(seq, "First node %lu - %lu\n",
-					   free_list->first_node->range_low,
-					   free_list->first_node->range_high);
-			}
-
-			if (free_list->last_node) {
-				seq_printf(seq, "Last node %lu - %lu\n",
-					   free_list->last_node->range_low,
-					   free_list->last_node->range_high);
-			}
-
-			seq_printf(
-				seq,
-				"Free list %d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
-				i, free_list->csum_start,
-				free_list->replica_csum_start,
-				free_list->num_csum_blocks,
-				free_list->parity_start,
-				free_list->num_parity_blocks);
-
-			seq_printf(
-				seq,
-				"Free list %d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
-				i, free_list->alloc_log_count,
-				free_list->alloc_log_pages,
-				free_list->alloc_data_count,
-				free_list->alloc_data_pages,
-				free_list->free_log_count,
-				free_list->freed_log_pages,
-				free_list->free_data_count,
-				free_list->freed_data_pages);
-
-			log_pages += free_list->alloc_log_pages;
-			log_pages -= free_list->freed_log_pages;
-
-			data_pages += free_list->alloc_data_pages;
-			data_pages -= free_list->freed_data_pages;
+		if (free_list->first_node) {
+			seq_printf(seq, "First node %lu - %lu\n",
+				   free_list->first_node->range_low,
+				   free_list->first_node->range_high);
 		}
+
+		if (free_list->last_node) {
+			seq_printf(seq, "Last node %lu - %lu\n",
+				   free_list->last_node->range_low,
+				   free_list->last_node->range_high);
+		}
+
+		seq_printf(
+			seq,
+			"Free list %d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
+			i, free_list->csum_start, free_list->replica_csum_start,
+			free_list->num_csum_blocks, free_list->parity_start,
+			free_list->num_parity_blocks);
+
+		seq_printf(
+			seq,
+			"Free list %d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
+			i, free_list->alloc_log_count,
+			free_list->alloc_log_pages, free_list->alloc_data_count,
+			free_list->alloc_data_pages, free_list->free_log_count,
+			free_list->freed_log_pages, free_list->free_data_count,
+			free_list->freed_data_pages);
+
+		log_pages += free_list->alloc_log_pages;
+		log_pages -= free_list->freed_log_pages;
+
+		data_pages += free_list->alloc_data_pages;
+		data_pages -= free_list->freed_data_pages;
 	}
 
 	seq_printf(seq, "\nCurrently used pmem pages: log %lu, data %lu\n",
@@ -444,6 +433,7 @@ ssize_t nova_seq_gc(struct file *filp, const char __user *buf, size_t len,
 	struct super_block *sb = pde_data(inode);
 	struct inode *target_inode;
 	struct nova_inode *target_pi;
+	struct nova_inode target_pic;
 	struct nova_inode_info *target_sih;
 
 	char *_buf;
@@ -491,13 +481,18 @@ ssize_t nova_seq_gc(struct file *filp, const char __user *buf, size_t len,
 		goto out;
 	}
 
+	memcpy(&target_pic, target_pi, sizeof(struct nova_inode));
+
 	target_sih = NOVA_I(target_inode);
 
 	nova_info("%s: got inode %llu @ 0x%p; pi=0x%p\n", __func__,
 		  target_inode_number, target_inode, target_pi);
 
-	nova_inode_log_fast_gc(sb, target_pi, &target_sih->header, 0, 0, 0, 0,
-			       1);
+	nova_inode_log_fast_gc(sb, target_pi, &target_pic, &target_sih->header,
+			       0, 0, 0, 0, 1);
+
+	memcpy_to_pmem_nocache(target_pi, &target_pic,
+			       sizeof(struct nova_inode));
 	iput(target_inode);
 
 out:
