@@ -175,21 +175,18 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 
 	INIT_TIMING(memcpy_time);
 
-#if NOVA_AGENT_ADDR_TRANS
 	INIT_TIMING(address_translation_time);
 	NOVA_START_TIMING(agent_addr_trans_r_t, address_translation_time);
 	tasks_index = create_agent_tasks(mm, uaddr, bytes, tasks);
 	NOVA_END_TIMING(agent_addr_trans_r_t, address_translation_time);
 	if (tasks_index <= 0)
 		goto out;
-#endif
 
 	nova_dbg_delegation("%s: kaddr: %lx, uaddr: %lx, bytes: %ld", __func__,
 			    kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_r_t, memcpy_time);
 
-#if NOVA_AGENT_ADDR_TRANS
 	for (i = 0; i < tasks_index; i++) {
 		if (zero) {
 			memset((void *)tasks[i].kuaddr, 0, tasks[i].size);
@@ -204,16 +201,6 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 			kaddr += tasks[i].size;
 		}
 	}
-#else
-
-	// TODO: user buf cannot access from delegation thread
-	// if (zero) {
-	// 	__clear_user((void *)uaddr, bytes);
-	// } else {
-	// 	__copy_to_user((void *)uaddr, (void *)kaddr, bytes);
-	// }
-
-#endif
 
 	NOVA_END_TIMING(agent_memcpy_r_t, memcpy_time);
 
@@ -238,6 +225,7 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 	int i = 0, tasks_index = 0;
 	unsigned long orig_kaddr = kaddr;
 	int ret = 0;
+	int frag = 8;
 
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
@@ -293,11 +281,22 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 #else
 
-	if (memcpy_to_pmem_avx_nocache((void *)kaddr, (void *)uaddr, bytes)) {
-		nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
-		ret = -EFAULT;
-		goto out;
+	for (i = 0; i < frag; i++) {
+		if (memcpy_to_pmem_avx_nocache(
+			    (void *)(kaddr + i * bytes / frag),
+			    (void *)(uaddr + i * bytes / frag), bytes / frag)) {
+			nova_warn(
+				"memcpy_to_pmem_avx_nocache failed to copy all\n");
+			ret = -EFAULT;
+			goto out;
+		}
 	}
+
+	// if (memcpy_to_pmem_avx_nocache((void *)kaddr, (void *)uaddr, bytes)) {
+	// 	nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
+	// 	ret = -EFAULT;
+	// 	goto out;
+	// }
 
 #endif
 
