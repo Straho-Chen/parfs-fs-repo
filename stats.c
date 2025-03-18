@@ -412,7 +412,7 @@ nova_print_file_write_entry(struct super_block *sb, u64 curr,
 	nova_dbg(
 		"file write entry @ 0x%llx: epoch %llu, trans %llu, pgoff %llu, pages %u, blocknr %llu, reassigned %u, updating %u, invalid count %u, size %llu, mtime %u\n",
 		curr, entry->epoch_id, entry->trans_id, entry->pgoff,
-		entry->num_pages, entry->block >> PAGE_SHIFT, entry->reassigned,
+		entry->num_pages, entry->blocknr, entry->reassigned,
 		entry->updating, entry->invalid_pages, entry->size,
 		entry->mtime);
 }

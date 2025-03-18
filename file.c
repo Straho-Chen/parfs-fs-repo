@@ -571,7 +571,7 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 				sb,
 				"%s ERROR: %lu, entry pgoff %llu, num %u, blocknr %llu\n",
 				__func__, index, entry->pgoff, entry->num_pages,
-				entry->block >> PAGE_SHIFT);
+				entry->blocknr);
 			return -EINVAL;
 		}
 		if (entryc->reassigned == 0) {
@@ -729,7 +729,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	/*
 	 * let user buffer to be kernel thread shared and 64-byte aligned
 	 */
-	ubuf_copy = vmalloc(len + 64);
+	ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
 	if (ubuf_copy == NULL) {
 		nova_err(sb, "%s: user kernel buffer allocation error\n",
 			 __func__);
@@ -805,8 +805,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	epoch_id = nova_get_epoch_id(sb);
 
 	nova_dbg_verbose(
-		"%s: epoch_id %llu, inode %lu, offset %lld, count %lu\n",
-		__func__, epoch_id, inode->i_ino, pos, count);
+		"%s: epoch_id %llu, inode %lu, offset %lld, count %lu, numblocks: %lu\n",
+		__func__, epoch_id, inode->i_ino, pos, count, num_blocks);
 	update.tail = sih->log_tail;
 	update.alter_tail = sih->alter_log_tail;
 	while (num_blocks > 0) {
@@ -890,6 +890,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		}
 		// restore blocknr
 		blocknr -= head;
+		allocated += head;
+		allocated += tail;
 		copied = bytes;
 
 		if (data_csum > 0 || data_parity > 0) {
@@ -989,7 +991,7 @@ out:
 
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);
-	vfree(ubuf_copy);
+	kfree(ubuf_copy);
 
 	if (try_inplace)
 		return do_nova_inplace_file_write(filp, buf, len, ppos);

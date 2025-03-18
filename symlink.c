@@ -123,7 +123,8 @@ static int nova_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 	}
 
 	blockp = (char *)nova_get_virt_addr_from_offset(
-		sb, BLOCK_OFF(entryc->block));
+		sb, BLOCK_OFF(nova_get_block_off(sb, entry->blocknr,
+						 sih->i_blk_type)));
 
 	return nova_readlink_copy(buffer, buflen, blockp);
 }
@@ -149,7 +150,8 @@ static const char *nova_get_link(struct dentry *dentry, struct inode *inode,
 	}
 
 	blockp = (char *)nova_get_virt_addr_from_offset(
-		sb, BLOCK_OFF(entryc->block));
+		sb, BLOCK_OFF(nova_get_block_off(sb, entry->blocknr,
+						 sih->i_blk_type)));
 
 	return blockp;
 }

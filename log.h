@@ -75,7 +75,7 @@ struct nova_file_write_entry {
 	u8 updating; /* Data is being written */
 	u8 padding;
 	__le32 num_pages;
-	__le64 block; /* offset of first block in this write */
+	__le64 blocknr; /* block number of first block in this write */
 	__le64 pgoff; /* file offset at the beginning of this write */
 	__le32 invalid_pages; /* For GC */
 	/* For both ctime and mtime */

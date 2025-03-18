@@ -226,10 +226,21 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			/* Here is small size writes. We don't call delegation write here. */
 			nova_memunlock_range(sb, nvmmptr, csum_size * 8,
 					     &irq_flags);
-			memcpy_to_pmem_nocache(nvmmptr, crc, csum_size * 8);
-			memcpy_to_pmem_nocache(nvmmptr1, crc, csum_size * 8);
+			if (support_clwb) {
+				memcpy(nvmmptr, crc, csum_size * 8);
+				memcpy(nvmmptr1, crc, csum_size * 8);
+			} else {
+				memcpy_to_pmem_nocache(nvmmptr, crc,
+						       csum_size * 8);
+				memcpy_to_pmem_nocache(nvmmptr1, crc,
+						       csum_size * 8);
+			}
 			nova_memlock_range(sb, nvmmptr, csum_size * 8,
 					   &irq_flags);
+			if (support_clwb) {
+				nova_flush_buffer(nvmmptr, csum_size * 8, 0);
+				nova_flush_buffer(nvmmptr1, csum_size * 8, 0);
+			}
 		}
 
 		if (data_parity > 0) {

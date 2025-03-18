@@ -465,7 +465,6 @@ static int nova_append_log_entry(struct super_block *sb, struct nova_inode *pi,
 
 		alter_entry = nova_get_virt_addr_from_offset(sb, alter_curr_p);
 		nova_memunlock_range(sb, alter_entry, size, &irq_flags);
-		// memset(alter_entry, 0, size);
 		nova_update_log_entry(sb, inode, alter_entry, entry_info);
 		nova_memlock_range(sb, alter_entry, size, &irq_flags);
 
@@ -1142,6 +1141,7 @@ static int nova_coalesce_log_pages(struct super_block *sb,
 		nova_memlock_block(sb, curr_page, &irq_flags);
 	}
 
+	// link the new pages
 	for (i = 0; i < num_pages - 1; i++) {
 		curr_block = nova_get_block_off(sb, first_blocknr + i, btype);
 		curr_page = (struct nova_inode_log_page *)
@@ -1328,6 +1328,7 @@ static u64 nova_extend_inode_log(struct super_block *sb, struct nova_inode *pi,
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
 			sb, curr);
 
+	// link current page next to new pages
 	nova_memunlock_block(sb, curr_page, &irq_flags);
 	nova_set_next_page_address(sb, curr_page, new_block, 0);
 	nova_memlock_block(sb, curr_page, &irq_flags);
@@ -1343,10 +1344,6 @@ static u64 nova_extend_inode_log(struct super_block *sb, struct nova_inode *pi,
 			return 0;
 		}
 
-		nova_memunlock_inode(sb, pi, &irq_flags);
-		nova_update_alter_pages(sb, pic, new_block, alter_new_block);
-		nova_memlock_inode(sb, pi, &irq_flags);
-
 		alter_curr = BLOCK_OFF(sih->alter_log_tail);
 
 		while (next_log_page(sb, alter_curr) > 0)
@@ -1357,6 +1354,11 @@ static u64 nova_extend_inode_log(struct super_block *sb, struct nova_inode *pi,
 		nova_memunlock_block(sb, curr_page, &irq_flags);
 		nova_set_next_page_address(sb, alter_curr_page, alter_new_block,
 					   0);
+
+		nova_memunlock_inode(sb, pi, &irq_flags);
+		nova_update_alter_pages(sb, pic, new_block, alter_new_block);
+		nova_memlock_inode(sb, pi, &irq_flags);
+
 		nova_memlock_block(sb, curr_page, &irq_flags);
 	}
 

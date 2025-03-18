@@ -69,7 +69,7 @@ static int nova_update_dax_mapping(struct super_block *sb,
 
 	// NOVA_START_TIMING(update_mapping_t, update_time);
 
-	start_blocknr = nova_get_blocknr(sb, entry->block, sih->i_blk_type);
+	start_blocknr = entry->blocknr;
 	xa_lock_irq(&mapping->i_pages);
 	for (i = 0; i < num_pages; i++) {
 		curr_pgoff = start_pgoff + i;
@@ -114,7 +114,9 @@ static int nova_update_entry_pfn(struct super_block *sb,
 	// NOVA_START_TIMING(update_pfn_t, update_time);
 
 	addr = vma->vm_start + ((start_pgoff - vma->vm_pgoff) << PAGE_SHIFT);
-	pfn = nova_get_pfn(sb, entry->block) + start_pgoff - entry->pgoff;
+	pfn = nova_get_pfn(sb, nova_get_block_off(sb, entry->blocknr,
+						  sih->i_blk_type)) +
+	      start_pgoff - entry->pgoff;
 	size = num_pages << PAGE_SHIFT;
 
 	nova_dbg_verbose("%s: addr 0x%lx, size 0x%lx\n", __func__, addr, size);

@@ -600,8 +600,7 @@ static inline unsigned long get_nvmm(struct super_block *sb,
 		NOVA_ASSERT(0);
 	}
 
-	return (unsigned long)(entry->block >> PAGE_SHIFT) + pgoff -
-	       entry->pgoff;
+	return (unsigned long)entry->blocknr + pgoff - entry->pgoff;
 }
 
 bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc);
@@ -972,6 +971,9 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 				(unsigned long)kmem_dest);
 			left = memcpy_to_pmem_nocache(kmem_dest, kubuf_src,
 						      bytes);
+			//TODO: remove
+			nova_dbg_verbose("%s: kubuf content: %s, size: %ld\n",
+					 __func__, (char *)kubuf_src, bytes);
 		}
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
