@@ -356,8 +356,7 @@ void nova_init_file_write_entry(struct super_block *sb,
 	entry->pgoff = cpu_to_le64(pgoff);
 	entry->num_pages = cpu_to_le32(num_pages);
 	entry->invalid_pages = 0;
-	entry->blocknr =
-		blocknr;
+	entry->blocknr = blocknr;
 	entry->mtime = cpu_to_le32(time);
 
 	entry->size = file_size;
@@ -956,6 +955,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		if (bytes > count)
 			bytes = count;
 
+		head = tail = 0;
 		if (hole_fill &&
 		    (offset || ((offset + bytes) & (PAGE_SIZE - 1)) != 0)) {
 			ret = nova_handle_head_tail_blocks(
@@ -980,6 +980,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				inode->i_sb,
 				nova_get_block_off(sb, blocknr + i,
 						   sih->i_blk_type));
+#if NOVA_KERNEL_COPY_USER_BUFFER
 			copied += do_nova_nvmm_write(
 				sb, kmem,
 				(void *)(ubuf_copy + offset +
@@ -987,6 +988,14 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				delegation_size, socket, 0, 1, 0, issued_cnt,
 				completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD);
+#else
+			copied += do_nova_nvmm_write(
+				sb, kmem,
+				(void *)(buf + offset + delegation_size * i),
+				delegation_size, socket, 0, 1, 0, issued_cnt,
+				completed_cnt,
+				len >= NOVA_WRITE_WAIT_THRESHOLD);
+#endif
 		}
 		if (copied) {
 			nova_err(sb, "%s: delegation failed to copy all\n",
@@ -1003,6 +1012,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		// restore blocknr
 		blocknr -= head;
+		allocated += head;
+		allocated += tail;
 		copied = bytes;
 
 		if (data_csum > 0 || data_parity > 0) {

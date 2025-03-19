@@ -117,10 +117,8 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 {
 	struct nova_delegation_request request;
 	int ret = 0;
-	// unsigned long i = 0, uaddr_end = 0;
 	int thread;
 
-	// INIT_TIMING(prefault_time);
 	INIT_TIMING(send_request_time);
 	INIT_TIMING(ring_buffer_enque_time);
 
@@ -128,43 +126,47 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	 * We copy user buffer into kernel buffer on main thread.
 	 * So we don't need to do user prefault here.
 	 */
-	// 	/* TODO: Check the validity of the user-level address */
-	// 	/*
-	//    * access the user address while still at the process's address space
-	//    * to let the kernel handles various situations: e.g., page not mapped,
-	//    * page swapped out.
-	//    *
-	//    * Surprisingly, the overhead of this part is significant. However,
-	//    * currently it looks to me no point to optimize this part; The bottleneck
-	//    * is in the delegation thread, not the main thread.
-	//    */
-	// 	if (!zero) {
-	// 		NOVA_START_TIMING(pre_fault_w_t, prefault_time);
-	// 		uaddr_end = ROUNDUP_PAGE(uaddr + bytes - 1);
-	// 		for (i = uaddr; i < uaddr_end; i += PAGE_SIZE) {
-	// 			unsigned long target_addr = i;
+#if !NOVA_KERNEL_COPY_USER_BUFFER
+	unsigned long i = 0, uaddr_end = 0;
+	INIT_TIMING(prefault_time);
+	/* TODO: Check the validity of the user-level address */
+	/*
+	   * access the user address while still at the process's address space
+	   * to let the kernel handles various situations: e.g., page not mapped,
+	   * page swapped out.
+	   *
+	   * Surprisingly, the overhead of this part is significant. However,
+	   * currently it looks to me no point to optimize this part; The bottleneck
+	   * is in the delegation thread, not the main thread.
+	   */
+	if (!zero) {
+		NOVA_START_TIMING(pre_fault_w_t, prefault_time);
+		uaddr_end = ROUNDUP_PAGE(uaddr + bytes - 1);
+		for (i = uaddr; i < uaddr_end; i += PAGE_SIZE) {
+			unsigned long target_addr = i;
 
-	// 			/*
-	//        * Do not access an address that is out of the buffer provided by the user
-	//        */
+			/*
+	       * Do not access an address that is out of the buffer provided by the user
+	       */
 
-	// 			if (i > uaddr + bytes - 1)
-	// 				target_addr = uaddr + bytes - 1;
+			if (i > uaddr + bytes - 1)
+				target_addr = uaddr + bytes - 1;
 
-	// 			nova_dbg_delegation(
-	// 				"%s: uaddr: %lx, bytes: %ld, target_addr: %lx\n",
-	// 				__func__, uaddr, bytes, target_addr);
+			nova_dbg_delegation(
+				"%s: uaddr: %lx, bytes: %ld, target_addr: %lx\n",
+				__func__, uaddr, bytes, target_addr);
 
-	// 			ret = copy_from_user(&nova_no_optimize,
-	// 					     (void *)target_addr, 1);
+			ret = copy_from_user(&nova_no_optimize,
+					     (void *)target_addr, 1);
 
-	// 			if (ret != 0) {
-	// 				NOVA_END_TIMING(pre_fault_w_t, prefault_time);
-	// 				goto out;
-	// 			}
-	// 		}
-	// 		NOVA_END_TIMING(pre_fault_w_t, prefault_time);
-	// 	}
+			if (ret != 0) {
+				NOVA_END_TIMING(pre_fault_w_t, prefault_time);
+				goto out;
+			}
+		}
+		NOVA_END_TIMING(pre_fault_w_t, prefault_time);
+	}
+#endif
 
 	/*
    * We have ensured that [kaddr, kaddr + bytes - 1) falls in the same

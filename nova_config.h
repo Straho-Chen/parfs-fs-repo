@@ -89,6 +89,6 @@
 
 #define NOVA_XXHASH_CSUM 0
 
-#define NOVA_AGENT_ADDR_TRANS 0
+#define NOVA_KERNEL_COPY_USER_BUFFER 1
 
 #endif /* __NOVA_CONFIG_H_ */

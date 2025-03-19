@@ -867,6 +867,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				inode->i_sb,
 				nova_get_block_off(sb, blocknr + i,
 						   sih->i_blk_type));
+
+#if NOVA_KERNEL_COPY_USER_BUFFER
 			copied += do_nova_nvmm_write(
 				sb, kmem,
 				(void *)(ubuf_copy + offset +
@@ -874,6 +876,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				delegation_size, socket, 0, 1, 0, issued_cnt,
 				completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD);
+#else
+			copied += do_nova_nvmm_write(
+				sb, kmem,
+				(void *)(buf + offset + delegation_size * i),
+				delegation_size, socket, 0, 1, 0, issued_cnt,
+				completed_cnt,
+				len >= NOVA_WRITE_WAIT_THRESHOLD);
+#endif
 		}
 		if (copied) {
 			nova_err(sb, "%s: delegation failed to copy all\n",

@@ -224,7 +224,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 {
 	int i = 0, tasks_index = 0;
 	unsigned long orig_kaddr = kaddr;
-	int ret = 0;
 	int frag = 8;
 
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
@@ -244,7 +243,7 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 		goto out;
 	}
 
-#if NOVA_AGENT_ADDR_TRANS
+#if !NOVA_KERNEL_COPY_USER_BUFFER
 	INIT_TIMING(address_translation_time);
 	NOVA_START_TIMING(agent_addr_trans_w_t, address_translation_time);
 	tasks_index = create_agent_tasks(mm, uaddr, bytes, tasks);
@@ -258,15 +257,15 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 	NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
 
-#if NOVA_AGENT_ADDR_TRANS
+#if !NOVA_KERNEL_COPY_USER_BUFFER
 	for (i = 0; i < tasks_index; i++) {
 		nova_dbg_delegation("%s: uaddr: %lx, size: %ld, kaddr: %lx\n",
 				    __func__, tasks[i].kuaddr, tasks[i].size,
 				    kaddr);
 
 #if NOVA_NT_STORE
-		memcpy_to_pmem_avx_nocache(
-			(void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
+		memcpy_to_pmem_nocache((void *)kaddr, (void *)tasks[i].kuaddr,
+				       tasks[i].size);
 #else
 		memcpy((void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
 #endif
@@ -287,16 +286,9 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			    (void *)(uaddr + i * bytes / frag), bytes / frag)) {
 			nova_warn(
 				"memcpy_to_pmem_avx_nocache failed to copy all\n");
-			ret = -EFAULT;
 			goto out;
 		}
 	}
-
-	// if (memcpy_to_pmem_avx_nocache((void *)kaddr, (void *)uaddr, bytes)) {
-	// 	nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
-	// 	ret = -EFAULT;
-	// 	goto out;
-	// }
 
 #endif
 
