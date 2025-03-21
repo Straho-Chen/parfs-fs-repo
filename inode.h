@@ -8,14 +8,6 @@ struct nova_inode;
 #include "stats.h"
 #include "log.h"
 
-/*
- * Play with this knob to change the default block type.
- * By changing the NOVA_DEFAULT_BLOCK_TYPE to 32K/2M/1G,
- * we should get pretty good coverage in testing.
- */
-#define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_4K
-// #define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_32K
-
 enum nova_new_inode_type {
 	TYPE_CREATE = 0,
 	TYPE_MKNOD,
@@ -187,8 +179,8 @@ static inline int nova_update_inode_checksum(struct nova_inode *pi, int faf)
 	if (metadata_csum == 0)
 		goto persist;
 
-	crc = nova_calc_csum32(~0, (__u8 *)pi,
-			       (sizeof(struct nova_inode) - sizeof(__le32)));
+	crc = nova_crc32c(~0, (__u8 *)pi,
+			  (sizeof(struct nova_inode) - sizeof(__le32)));
 
 	pi->csum = crc;
 persist:
@@ -204,8 +196,8 @@ static inline int nova_check_inode_checksum(struct nova_inode *pi)
 	if (metadata_csum == 0)
 		return 0;
 
-	crc = nova_calc_csum32(~0, (__u8 *)pi,
-			       (sizeof(struct nova_inode) - sizeof(__le32)));
+	crc = nova_crc32c(~0, (__u8 *)pi,
+			  (sizeof(struct nova_inode) - sizeof(__le32)));
 
 	if (pi->csum == cpu_to_le32(crc))
 		return 0;

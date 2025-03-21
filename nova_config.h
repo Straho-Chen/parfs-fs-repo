@@ -1,6 +1,8 @@
 #ifndef __NOVA_CONFIG_H_
 #define __NOVA_CONFIG_H_
 
+#define NOVA_NVM_XP_BUFFER_SIZE (12 * 1024)
+
 #define NOVA_DELEGATION_ENABLE 1
 
 #define NOVA_MAX_SOCKET 8
@@ -46,7 +48,7 @@
  */
 #define NOVA_APP_CHECK_COUNT 220000000
 
-#define NOVA_SOLROS_RING_BUFFER 1
+#define NOVA_SOLROS_RING_BUFFER 0
 
 /* write delegation limits: 256 */
 #define NOVA_WRITE_DELEGATION_LIMIT 256

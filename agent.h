@@ -3,6 +3,7 @@
 
 #include <linux/pgtable.h>
 #include "nova_config.h"
+#include "nova_def.h"
 
 struct nova_agent_tasks {
 	unsigned long kuaddr;

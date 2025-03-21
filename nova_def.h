@@ -320,4 +320,15 @@ static inline void cpu_topology_free(int **socket_cpu)
 	kfree(socket_cpu);
 }
 
+/*
+ * Play with this knob to change the default block type.
+ * By changing the NOVA_DEFAULT_BLOCK_TYPE to 32K/2M/1G,
+ * we should get pretty good coverage in testing.
+ */
+#define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_4K
+// #define NOVA_DEFAULT_BLOCK_TYPE NOVA_BLOCK_TYPE_32K
+
+#define NOVA_DEFALUT_BLOCK_SHIFT blk_type_to_shift[NOVA_DEFAULT_BLOCK_TYPE]
+#define NOVA_DEFALUT_BLOCK_SIZE blk_type_to_size[NOVA_DEFAULT_BLOCK_TYPE]
+
 #endif /* _LINUX_NOVA_DEF_H */

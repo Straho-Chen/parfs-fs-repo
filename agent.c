@@ -220,11 +220,10 @@ out:
  */
 static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			     unsigned long uaddr, unsigned long bytes, int zero,
-			     int flush_cache, atomic_t *notify_cnt)
+			     int flush_cache, atomic_t *notify_cnt, int frag)
 {
 	int i = 0, tasks_index = 0;
 	unsigned long orig_kaddr = kaddr;
-	int frag = 8;
 
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
@@ -297,6 +296,17 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 out:
 	atomic_inc(notify_cnt);
 	return;
+}
+
+static inline int agent_cal_frag(int socket)
+{
+	int frag;
+	int filled_ring = nova_filled_ring_num(socket);
+	size_t req_size = NOVA_DEFALUT_BLOCK_SIZE * filled_ring;
+	frag = (req_size / NOVA_NVM_XP_BUFFER_SIZE) + 1;
+	//  frag should be the power of 2
+	frag = roundup_pow_of_two(frag);
+	return frag;
 }
 
 static int agent_func(void *arg)
@@ -385,7 +395,8 @@ process_request:
 			do_write_request(request.mm, request.kaddr,
 					 request.uaddr, request.bytes,
 					 request.zero, request.flush_cache,
-					 request.notify_cnt);
+					 request.notify_cnt,
+					 agent_cal_frag(socket));
 		} else {
 			nova_warn("Unknown request type: %d", request.type);
 		}

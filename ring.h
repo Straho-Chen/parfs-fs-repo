@@ -8,6 +8,7 @@
 #include <solros_ring_buffer_api.h>
 typedef struct solros_ring_buffer_t nova_ring_buffer_t;
 #else
+#include "fifo.h"
 #endif
 
 extern int nova_num_of_rings_per_socket;
@@ -24,5 +25,9 @@ int nova_send_request(nova_ring_buffer_t *ring,
 
 int nova_recv_request(nova_ring_buffer_t *ring,
 		      struct nova_delegation_request *request);
+
+size_t nova_ring_len(nova_ring_buffer_t *ring);
+
+int nova_filled_ring_num(int socket);
 
 #endif /* __RING_H_ */
