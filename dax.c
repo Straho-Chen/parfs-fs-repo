@@ -483,13 +483,17 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 	if (num_blocks == 1)
 		goto eblk;
 
-	/* calculate and write checksum of blockbuf in a block granularity */
+/* calculate and write checksum of blockbuf in a block granularity */
+#if NOVA_XXHASH_CSUM
+	nova_update_block_csum_xxhash(sb, sih, blockbuf, blocknr, 0, blocksize);
+#else
 	if (inplace)
 		nova_update_block_csum_parity(sb, sih, blockbuf, blocknr,
 					      offset, bytes);
 	else
 		nova_update_block_csum_parity(sb, sih, blockbuf, blocknr, 0,
 					      blocksize);
+#endif
 
 	blocknr++;
 	pos += bytes;
@@ -504,13 +508,18 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 
 aligned_copy:
 	while (count > blocksize) {
-		/* calculate and write checksum of blockbuf in a block granularity */
+/* calculate and write checksum of blockbuf in a block granularity */
+#if NOVA_XXHASH_CSUM
+		nova_update_block_csum_xxhash(sb, sih, ubuf_copy, blocknr, 0,
+					      blocksize);
+#else
 		if (inplace)
 			nova_update_block_csum_parity(
 				sb, sih, ubuf_copy, blocknr, offset, blocksize);
 		else
 			nova_update_block_csum_parity(sb, sih, ubuf_copy,
 						      blocknr, 0, blocksize);
+#endif
 
 		blocknr++;
 		pos += blocksize;
@@ -590,12 +599,16 @@ nova_copy_partial_block_csum(sb, sih, entry, end_blk,
 */
 	}
 
+#if NOVA_XXHASH_CSUM
+	nova_update_block_csum_xxhash(sb, sih, blockbuf, blocknr, 0, blocksize);
+#else
 	if (inplace)
 		nova_update_block_csum_parity(sb, sih, blockbuf, blocknr,
 					      offset, bytes);
 	else
 		nova_update_block_csum_parity(sb, sih, blockbuf, blocknr, 0,
 					      blocksize);
+#endif
 
 out:
 	if (blockbuf != NULL)

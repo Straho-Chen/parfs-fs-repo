@@ -123,24 +123,6 @@ static inline u32 nova_crc32c(u32 crc, const u8 *data, size_t len)
 	return csum;
 }
 
-static inline u32 nova_calc_csum32(u32 seed, u8 *data, size_t len)
-{
-#if NOVA_XXHASH_CSUM
-	return xxh32(data, len, seed);
-#else
-	return nova_crc32c(seed, data, len);
-#endif
-}
-
-static inline void nova_calc_csum_qword(u64 *qword, u64 *crc)
-{
-#if NOVA_XXHASH_CSUM
-	*crc = xxh64(qword, sizeof(u64), *crc);
-#else
-	nova_crc32c_qword(*qword, *crc);
-#endif
-}
-
 /* uses CPU instructions to atomically write up to 8 bytes */
 static inline void nova_memcpy_atomic(void *dst, const void *src, u8 size)
 {
@@ -464,9 +446,9 @@ static inline u32 nova_calculate_range_node_csum(struct nova_range_node *node)
 {
 	u32 csum;
 
-	csum = nova_calc_csum32(~0, (__u8 *)&node->vma,
-				(unsigned long)&node->csum -
-					(unsigned long)&node->vma);
+	csum = nova_crc32c(~0, (__u8 *)&node->vma,
+			   (unsigned long)&node->csum -
+				   (unsigned long)&node->vma);
 
 	return csum;
 }
@@ -1048,6 +1030,10 @@ int nova_recovery(struct super_block *sb);
 
 /* checksum.c */
 void nova_update_entry_csum(void *entry);
+int nova_update_block_csum_xxhash(struct super_block *sb,
+				  struct nova_inode_info_header *sih, u8 *block,
+				  unsigned long blocknr, size_t offset,
+				  size_t bytes);
 int nova_update_block_csum(struct super_block *sb,
 			   struct nova_inode_info_header *sih, u8 *block,
 			   unsigned long blocknr, size_t offset, size_t bytes,

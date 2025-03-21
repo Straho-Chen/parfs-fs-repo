@@ -141,11 +141,11 @@ static u32 nova_calc_entry_csum(void *entry)
 
 	if (entry_len > 0) {
 		check_len = ((u8 *)csum_addr) - ((u8 *)entry);
-		csum = nova_calc_csum32(NOVA_INIT_CSUM, entry, check_len);
+		csum = nova_crc32c(NOVA_INIT_CSUM, entry, check_len);
 		check_len = entry_len - (check_len + NOVA_META_CSUM_LEN);
 		if (check_len > 0) {
 			remain = ((u8 *)csum_addr) + NOVA_META_CSUM_LEN;
-			csum = nova_calc_csum32(csum, remain, check_len);
+			csum = nova_crc32c(csum, remain, check_len);
 		}
 
 		if (check_len < 0) {
@@ -652,20 +652,20 @@ static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 		}
 
 		crc[0] = cpu_to_le32(
-			nova_calc_csum32(NOVA_INIT_CSUM, strp_ptr, strp_size));
-		crc[1] = cpu_to_le32(nova_calc_csum32(
+			nova_crc32c(NOVA_INIT_CSUM, strp_ptr, strp_size));
+		crc[1] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size, strp_size));
-		crc[2] = cpu_to_le32(nova_calc_csum32(
+		crc[2] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 2, strp_size));
-		crc[3] = cpu_to_le32(nova_calc_csum32(
+		crc[3] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 3, strp_size));
-		crc[4] = cpu_to_le32(nova_calc_csum32(
+		crc[4] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 4, strp_size));
-		crc[5] = cpu_to_le32(nova_calc_csum32(
+		crc[5] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 5, strp_size));
-		crc[6] = cpu_to_le32(nova_calc_csum32(
+		crc[6] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 6, strp_size));
-		crc[7] = cpu_to_le32(nova_calc_csum32(
+		crc[7] = cpu_to_le32(nova_crc32c(
 			NOVA_INIT_CSUM, strp_ptr + strp_size * 7, strp_size));
 
 		src_addr = crc;
@@ -705,8 +705,7 @@ copy:
 		if (zero)
 			csum = sbi->zero_csum[0];
 		else
-			csum = nova_calc_csum32(NOVA_INIT_CSUM, strp_ptr,
-						strp_size);
+			csum = nova_crc32c(NOVA_INIT_CSUM, strp_ptr, strp_size);
 
 		csum = cpu_to_le32(csum);
 		csum_addr = nova_get_data_csum_addr(sb, strp_nr, 0);
@@ -724,6 +723,50 @@ copy:
 			strp_ptr += strp_size;
 	}
 
+	return 0;
+}
+
+/* Checksums a data block and writes the checksum values to nvmm.
+ *
+ * The block buffer to compute checksums should reside in dram (more trusted),
+ * not in nvmm (less trusted).
+ *
+ * Checksum is calculated over a whole block and using xxhash.
+ *
+ * block:   block buffer with user data and possibly partial head-tail block
+ *          - should be in kernel memory (dram) to avoid page faults
+ * blocknr: destination nvmm block number where the block is written to
+ *          - used to derive checksum value addresses
+ * offset:  byte offset of user data in the block buffer
+ * bytes:   number of user data bytes in the block buffer
+ */
+int nova_update_block_csum_xxhash(struct super_block *sb,
+				  struct nova_inode_info_header *sih, u8 *block,
+				  unsigned long blocknr, size_t offset,
+				  size_t bytes)
+{
+	u32 csum;
+	void *csum_addr, *csum_addr1;
+	INIT_TIMING(block_csum_time);
+
+	NOVA_START_TIMING(block_csum_t, block_csum_time);
+
+	// use xxhash to calculate the whole block
+	// Actually offset is always 0 and bytes is always the block size
+	csum = xxh32(block + offset, bytes, 0);
+
+	// get the checksum address
+	csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+	csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
+
+	// copy
+	// not cache aligned, so we directly copy to pmem
+	nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, NULL);
+	memcpy_to_pmem_nocache(csum_addr, &csum, NOVA_DATA_CSUM_LEN);
+	memcpy_to_pmem_nocache(csum_addr1, &csum, NOVA_DATA_CSUM_LEN);
+	nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, NULL);
+
+	NOVA_END_TIMING(block_csum_t, block_csum_time);
 	return 0;
 }
 
@@ -873,8 +916,8 @@ bool nova_verify_data_csum(struct super_block *sb,
 				 __func__);
 			match = false;
 		} else {
-			csum_calc = nova_calc_csum32(NOVA_INIT_CSUM, strip,
-						     strp_size);
+			csum_calc =
+				nova_crc32c(NOVA_INIT_CSUM, strip, strp_size);
 			match = (csum_calc == csum_nvmm0) ||
 				(csum_calc == csum_nvmm1);
 		}

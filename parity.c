@@ -194,14 +194,14 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			qwd[7] = *((u64 *)(block + 7 * strp_size));
 
 			if (data_csum > 0 && unroll_csum) {
-				nova_calc_csum_qword(&qwd[0], &acc[0]);
-				nova_calc_csum_qword(&qwd[1], &acc[1]);
-				nova_calc_csum_qword(&qwd[2], &acc[2]);
-				nova_calc_csum_qword(&qwd[3], &acc[3]);
-				nova_calc_csum_qword(&qwd[4], &acc[4]);
-				nova_calc_csum_qword(&qwd[5], &acc[5]);
-				nova_calc_csum_qword(&qwd[6], &acc[6]);
-				nova_calc_csum_qword(&qwd[7], &acc[7]);
+				nova_crc32c_qword(qwd[0], acc[0]);
+				nova_crc32c_qword(qwd[1], acc[1]);
+				nova_crc32c_qword(qwd[2], acc[2]);
+				nova_crc32c_qword(qwd[3], acc[3]);
+				nova_crc32c_qword(qwd[4], acc[4]);
+				nova_crc32c_qword(qwd[5], acc[5]);
+				nova_crc32c_qword(qwd[6], acc[6]);
+				nova_crc32c_qword(qwd[7], acc[7]);
 			}
 
 			if (data_parity > 0) {
@@ -346,7 +346,7 @@ int nova_restore_data(struct super_block *sb, unsigned long blocknr,
 		 */
 		memcpy(strip, badstrip, i);
 
-		csum_calc = nova_calc_csum32(NOVA_INIT_CSUM, strip, strp_size);
+		csum_calc = nova_crc32c(NOVA_INIT_CSUM, strip, strp_size);
 		if (csum_calc == csum0 || csum_calc == csum1) {
 			success = true;
 			break;

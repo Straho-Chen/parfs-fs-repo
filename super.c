@@ -211,14 +211,16 @@ static int nova_get_nvmm_info(struct super_block *sb, struct nova_sb_info *sbi)
 		sbi->num_blocks += size_in_blocks;
 		sbi->initsize += pmem_ar_dev.size_in_bytes[i];
 
-		nova_dbg_verbose("head socket: %d, start_block: %lu, end_block: %lu\n",
-			 i, sbi->block_info[i].start_block,
-			 sbi->block_info[i].end_block);
+		nova_dbg_verbose(
+			"head socket: %d, start_block: %lu, end_block: %lu\n",
+			i, sbi->block_info[i].start_block,
+			sbi->block_info[i].end_block);
 	}
 
-	nova_dbg_verbose("%s: dev %s, phys_addr 0x%llx, virt_addr 0x%lx, size %ld\n",
-		 __func__, pmem_ar_dev.gd->disk_name, sbi->phys_addr,
-		 (unsigned long)sbi->virt_addr, sbi->initsize);
+	nova_dbg_verbose(
+		"%s: dev %s, phys_addr 0x%llx, virt_addr 0x%lx, size %ld\n",
+		__func__, pmem_ar_dev.gd->disk_name, sbi->phys_addr,
+		(unsigned long)sbi->virt_addr, sbi->initsize);
 
 	/* duplicate the info in the sbi */
 	sbi->device_num = pmem_ar_dev.elem_num;
@@ -405,9 +407,8 @@ static inline int nova_check_super_checksum(struct super_block *sb)
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	u32 csum = 0;
 
-	csum = nova_calc_csum32(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
-				sizeof(struct nova_super_block) -
-					sizeof(__le32));
+	csum = nova_crc32c(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
+			   sizeof(struct nova_super_block) - sizeof(__le32));
 
 	if (sbi->nova_sb->s_sum == cpu_to_le32(csum))
 		return 0;
@@ -445,9 +446,8 @@ inline void nova_update_super_crc(struct super_block *sb)
 
 	sbi->nova_sb->s_wtime = cpu_to_le32(ktime_get_seconds());
 	sbi->nova_sb->s_sum = 0;
-	csum = nova_calc_csum32(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
-				sizeof(struct nova_super_block) -
-					sizeof(__le32));
+	csum = nova_crc32c(~0, (__u8 *)sbi->nova_sb + sizeof(__le32),
+			   sizeof(struct nova_super_block) - sizeof(__le32));
 	sbi->nova_sb->s_sum = cpu_to_le32(csum);
 }
 
@@ -759,8 +759,8 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	for (i = 0; i < 8; i++)
-		sbi->zero_csum[i] = nova_calc_csum32(
-			NOVA_INIT_CSUM, sbi->zeroed_page, strp_size);
+		sbi->zero_csum[i] = nova_crc32c(NOVA_INIT_CSUM,
+						sbi->zeroed_page, strp_size);
 	sbi->zero_parity = kzalloc(strp_size, GFP_KERNEL);
 
 	if (!sbi->zero_parity) {
