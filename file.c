@@ -737,7 +737,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	/*
 	 * let user buffer to be kernel thread shared and 64-byte aligned
 	 */
-	ubuf_copy = vmalloc(len + 64);
+	ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
 	if (ubuf_copy == NULL) {
 		nova_err(sb, "%s: user kernel buffer allocation error\n",
 			 __func__);
@@ -822,9 +822,9 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		start_blk = pos >> data_bits;
 
 		/* don't zero-out the allocated blocks */
-		allocated = nova_new_one_data_block(sb, sih, &blocknr,
-						    ALLOC_NO_INIT, ANY_CPU,
-						    ALLOC_FROM_HEAD);
+		allocated = nova_new_data_blocks(sb, sih, &blocknr, start_blk,
+						 num_blocks, ALLOC_NO_INIT,
+						 ANY_CPU, ALLOC_FROM_HEAD);
 
 		nova_dbg_verbose("%s: alloc %d blocks @ %lu\n", __func__,
 				 allocated, blocknr);
@@ -873,10 +873,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 		if (data_csum > 0 || data_parity > 0) {
 			/* calculate data checksum and write csum to pmem */
-			ret = nova_protect_file_data(sb, inode, pos, bytes,
-						     ubuf_copy, blocknr, false);
-			if (ret)
-				goto out;
+			// ret = nova_protect_file_data(sb, inode, pos, bytes,
+			// 			     ubuf_copy, blocknr, false);
+			// if (ret)
+			// 	goto out;
 		}
 
 		if (pos + copied > inode->i_size)
@@ -891,8 +891,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 		/* write entry to pm; Jm and M */
 		/* may do gc here */
-		// ret = nova_append_file_write_entry(sb, &inode_copy, inode, &entry_data,
-		// 				   &update);
+		ret = nova_append_file_write_entry(sb, &inode_copy, inode,
+						   &entry_data, &update);
 		// ret = nova_append_file_write_entry(sb, pi, inode, &entry_data,
 		// 				   &update);
 		if (ret) {
@@ -967,6 +967,7 @@ out:
 	if (ret < 0)
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
 					      begin_tail, update.tail);
+	kfree(ubuf_copy);
 
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);

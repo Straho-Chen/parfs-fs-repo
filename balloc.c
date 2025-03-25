@@ -1058,8 +1058,8 @@ int nova_new_data_blocks(struct super_block *sb,
 
 	NOVA_START_TIMING(new_data_blocks_t, alloc_time);
 	allocated = nova_new_blocks(sb, blocknr, num, sih->i_blk_type, zero,
-				    DATA, cpu, sih->nsocket, from_tail);
-	sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
+				    DATA, cpu, 0, from_tail);
+	// sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
 	NOVA_END_TIMING(new_data_blocks_t, alloc_time);
 	if (allocated < 0) {
 		nova_dbg_verbose("FAILED: Inode %lu, "
@@ -1094,8 +1094,8 @@ int nova_new_log_blocks(struct super_block *sb,
 
 	NOVA_START_TIMING(new_log_blocks_t, alloc_time);
 	allocated = nova_new_blocks(sb, blocknr, num, sih->i_blk_type, zero,
-				    LOG, cpu, socket, from_tail);
-	sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
+				    LOG, cpu, 0, from_tail);
+	// sih->nsocket = nova_get_nsocket(NOVA_SB(sb), sih);
 	NOVA_END_TIMING(new_log_blocks_t, alloc_time);
 	if (allocated < 0) {
 		nova_dbg_verbose("%s: ino %lu, failed to alloc %d log blocks",

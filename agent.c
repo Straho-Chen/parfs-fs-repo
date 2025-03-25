@@ -233,7 +233,7 @@ out:
  */
 static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			     unsigned long uaddr, unsigned long bytes, int zero,
-			     int flush_cache, atomic_t *notify_cnt)
+			     int flush_cache, atomic_t *notify_cnt, int frag)
 {
 	int i = 0, tasks_index = 0;
 	unsigned long orig_kaddr = kaddr;
@@ -293,10 +293,14 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 #else
 
-	if (memcpy_to_pmem_avx_nocache((void *)kaddr, (void *)uaddr, bytes)) {
-		nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
-		ret = -EFAULT;
-		goto out;
+	for (i = 0; i < frag; i++) {
+		if (memcpy_to_pmem_avx_nocache(
+			    (void *)(kaddr + i * bytes / frag),
+			    (void *)(uaddr + i * bytes / frag), bytes / frag)) {
+			nova_warn(
+				"memcpy_to_pmem_avx_nocache failed to copy all\n");
+			goto out;
+		}
 	}
 
 #endif
@@ -394,7 +398,7 @@ process_request:
 			do_write_request(request.mm, request.kaddr,
 					 request.uaddr, request.bytes,
 					 request.zero, request.flush_cache,
-					 request.notify_cnt);
+					 request.notify_cnt, 4);
 		} else {
 			nova_warn("Unknown request type: %d", request.type);
 		}
