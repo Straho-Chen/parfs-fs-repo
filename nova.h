@@ -289,19 +289,53 @@ static inline int nova_blocknr_to_index(int blocknr, int btype)
 
 /* Which socket this block belongs to */
 static inline int nova_block_to_socket(struct nova_sb_info *sbi, int blocknr,
-				       int btype)
+				       int btype, int meta)
 {
-	return nova_blocknr_to_index(blocknr, btype) % sbi->sockets;
+	int socket;
+	if (meta) {
+		socket = nova_blocknr_to_index(blocknr, btype) %
+			 sbi->meta_sockets;
+		socket += sbi->meta_head_socket;
+	} else {
+		if (sbi->meta_data_mix) {
+			// the second socket will separated into 2 parts
+			// each part take one blk to do io
+			socket = nova_blocknr_to_index(blocknr, btype) %
+				 (sbi->data_sockets + 1);
+		} else {
+			socket = nova_blocknr_to_index(blocknr, btype) %
+				 sbi->data_sockets;
+		}
+		socket += sbi->data_head_socket;
+	}
+	return socket;
 }
 
-static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr)
+static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr,
+				    int meta)
 {
-	return blocknr / sbi->per_list_blocks;
+	int cpu;
+	if (meta)
+		cpu = blocknr / sbi->per_meta_list_blocks;
+	else
+		cpu = blocknr / sbi->per_data_list_blocks;
+	return cpu;
 }
 
-static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, int blocknr)
+static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, int blocknr,
+				       int meta)
 {
-	return blocknr / sbi->sockets;
+	int off;
+	if (meta)
+		off = blocknr / sbi->meta_sockets;
+	else {
+		if (sbi->meta_data_mix) {
+			off = blocknr / (sbi->data_sockets + 1);
+		} else {
+			off = blocknr / sbi->data_sockets;
+		}
+	}
+	return off;
 }
 
 /* Translate an offset the beginning of the Nova instance to a PMEM address.
@@ -310,29 +344,47 @@ static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, int blocknr)
  * nova_memunlock_block() before calling!
  */
 static inline void *nova_get_virt_addr_from_offset(struct super_block *sb,
-						   u64 off)
+						   u64 off, int meta)
 {
-	struct nova_super_block *ps = nova_get_super(sb);
+	struct nova_sb_info *sbi = NOVA_SB(sb);
+	void *ret;
 
-	return off ? ((void *)ps + off) : NULL;
+	if (!off)
+		return NULL;
+
+	if (meta)
+		ret = (void *)(sbi->meta_start_virt + off);
+	else
+		ret = (void *)(sbi->data_start_virt + off);
+
+	nova_dbg_verbose("%s: %s return virt addr: %#lx\n", __func__,
+			 (meta ? "meta" : "data"), (unsigned long)ret);
+
+	return ret;
 }
 
-static inline int nova_get_block_from_addr(struct nova_sb_info *sbi, void *addr)
+static inline int nova_get_block_from_addr(struct nova_sb_info *sbi, void *addr,
+					   int meta)
 {
-	return ((addr - sbi->virt_addr) >> PAGE_SHIFT);
+	if (meta)
+		return ((addr - sbi->meta_start_virt) >> PAGE_SHIFT);
+	else
+		return ((addr - sbi->data_start_virt) >> PAGE_SHIFT);
 }
 
 static inline int nova_get_reference(struct super_block *sb, u64 off,
-				     void *dram, void **nvmm, size_t size)
+				     void *dram, void **nvmm, size_t size,
+				     int meta)
 {
 	int rc;
 
-	*nvmm = nova_get_virt_addr_from_offset(sb, off);
+	*nvmm = nova_get_virt_addr_from_offset(sb, off, meta);
 	rc = memcpy_mcsafe(dram, *nvmm, size);
 	return rc;
 }
 
-static inline u64 nova_get_addr_off(struct nova_sb_info *sbi, void *addr)
+static inline u64 nova_get_addr_off(struct nova_sb_info *sbi, void *addr,
+				    int meta)
 {
 	/*
 	 * It seems that we can make sure the address is valid.
@@ -343,24 +395,38 @@ static inline u64 nova_get_addr_off(struct nova_sb_info *sbi, void *addr)
 			nova_err(sbi->sb, "Invalid address %p\n", addr);
 		}
 	}
-	return (u64)(addr - sbi->virt_addr);
+	if (meta)
+		return (u64)(addr - sbi->meta_start_virt);
+	else
+		return (u64)(addr - sbi->data_start_virt);
 }
 
 static inline u64 nova_get_block_off(struct super_block *sb,
 				     unsigned long blocknr,
-				     unsigned short btype)
+				     unsigned short btype, int meta)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
-	// nova_dbg_verbose("%s: input blocknr: %#lx, btype: %d\n", __func__,
-	// 		 blocknr, btype);
-	int socket = nova_block_to_socket(sbi, blocknr, btype);
-	int socket_off = nova_block_to_nvmoff(sbi, blocknr);
-	u64 ret_off = (sbi->block_info[socket].start_block + socket_off)
-		      << PAGE_SHIFT;
-	// nova_dbg_verbose(
-	// 	"%s: output block off: %#llx, socket: %d, socket_off: %d, start_block_cur_socket: %#lx\n",
-	// 	__func__, ret_off, socket, socket_off,
-	// 	sbi->block_info[socket].start_block);
+	nova_dbg_verbose("%s: input blocknr: %#lx, btype: %d, %s\n", __func__,
+			 blocknr, btype, (meta ? "meta" : "data"));
+	int socket = nova_block_to_socket(sbi, blocknr, btype, meta);
+	size_t socket_off = nova_block_to_nvmoff(sbi, blocknr, meta);
+	u64 ret_off;
+	if (sbi->meta_data_mix && (socket == 2)) {
+		// the second part of the second socket
+		// meta_num_blocks is the number of blocks of half socket
+		nova_dbg_verbose(
+			"%s: meta data mix and locate on second socket's second part\n",
+			__func__);
+		ret_off = (sbi->block_info[1].start_block +
+			   sbi->meta_num_blocks + socket_off)
+			  << PAGE_SHIFT;
+	} else {
+		ret_off = (sbi->block_info[socket].start_block + socket_off)
+			  << PAGE_SHIFT;
+	}
+	nova_dbg_verbose(
+		"%s: output block off: %#llx, socket: %d, socket_off: %#lx\n",
+		__func__, ret_off, socket, socket_off);
 	return ret_off;
 }
 
@@ -573,7 +639,7 @@ static inline unsigned long get_nvmm(struct super_block *sb,
 		struct nova_sb_info *sbi = NOVA_SB(sb);
 		u64 curr;
 
-		curr = nova_get_addr_off(sbi, entry);
+		curr = nova_get_addr_off(sbi, entry, 1);
 		nova_dbg(
 			"Entry ERROR: inode %lu, curr 0x%llx, pgoff %lu, entry pgoff %llu, num %u\n",
 			sih->ino, curr, pgoff, entry->pgoff, entry->num_pages);
@@ -582,7 +648,8 @@ static inline unsigned long get_nvmm(struct super_block *sb,
 		NOVA_ASSERT(0);
 	}
 
-	return (unsigned long)entry->blocknr + pgoff - entry->pgoff;
+	return (unsigned long)entry->blocknr +
+	       (pgoff - entry->pgoff) * nova_get_numblocks(sih->i_blk_type);
 }
 
 bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc);
@@ -634,7 +701,7 @@ static inline u64 next_log_page(struct super_block *sb, u64 curr)
 	curr = BLOCK_OFF(curr);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr);
+			sb, curr, 1);
 	rc = memcpy_mcsafe(&next, &curr_page->page_tail.next_page, sizeof(u64));
 	if (rc)
 		return rc;
@@ -654,7 +721,7 @@ static inline u64 alter_log_page(struct super_block *sb, u64 curr)
 	curr = BLOCK_OFF(curr);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr);
+			sb, curr, 1);
 	rc = memcpy_mcsafe(&next, &curr_page->page_tail.alter_page,
 			   sizeof(u64));
 	if (rc)
@@ -666,7 +733,7 @@ static inline u64 alter_log_page(struct super_block *sb, u64 curr)
 static inline u64 alter_log_entry(struct super_block *sb, u64 curr_p)
 {
 	u64 alter_page;
-	void *curr_addr = nova_get_virt_addr_from_offset(sb, curr_p);
+	void *curr_addr = nova_get_virt_addr_from_offset(sb, curr_p, 1);
 	unsigned long page_tail =
 		BLOCK_OFF((unsigned long)curr_addr) + LOG_BLOCK_TAIL;
 	if (metadata_csum == 0)
@@ -683,7 +750,7 @@ static inline void nova_set_next_page_flag(struct super_block *sb, u64 curr_off)
 	if (ENTRY_LOC(curr_off) >= LOG_BLOCK_TAIL)
 		return;
 
-	p = nova_get_virt_addr_from_offset(sb, curr_off);
+	p = nova_get_virt_addr_from_offset(sb, curr_off, 1);
 	nova_set_entry_type(p, NEXT_PAGE);
 	nova_flush_buffer(p, CACHELINE_SIZE, 0);
 }
@@ -727,7 +794,7 @@ static inline void nova_inc_page_num_entries(struct super_block *sb, u64 curr)
 	curr = BLOCK_OFF(curr);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr);
+			sb, curr, 1);
 
 	curr_page->page_tail.num_entries++;
 	nova_flush_buffer(&curr_page->page_tail,
@@ -745,7 +812,7 @@ static inline void nova_inc_page_invalid_entries(struct super_block *sb,
 	curr = BLOCK_OFF(curr);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr);
+			sb, curr, 1);
 
 	curr_page->page_tail.invalid_entries++;
 	if (curr_page->page_tail.invalid_entries >
@@ -769,9 +836,9 @@ static inline void nova_set_alter_page_address(struct super_block *sb,
 	if (metadata_csum == 0)
 		return;
 
-	curr_page = nova_get_virt_addr_from_offset(sb, BLOCK_OFF(curr_off));
-	alter_page =
-		nova_get_virt_addr_from_offset(sb, BLOCK_OFF(alter_curr_off));
+	curr_page = nova_get_virt_addr_from_offset(sb, BLOCK_OFF(curr_off), 1);
+	alter_page = nova_get_virt_addr_from_offset(
+		sb, BLOCK_OFF(alter_curr_off), 1);
 
 	curr_page->page_tail.alter_page = alter_curr_off;
 	nova_flush_buffer(&curr_page->page_tail,
@@ -803,7 +870,7 @@ static inline bool goto_next_page(struct super_block *sb, u64 curr_off)
 	if (ENTRY_LOC(curr_off) + 32 > LOG_BLOCK_TAIL)
 		return true;
 
-	addr = nova_get_virt_addr_from_offset(sb, curr_off);
+	addr = nova_get_virt_addr_from_offset(sb, curr_off, 1);
 	rc = memcpy_mcsafe(&type, addr, sizeof(u8));
 
 	if (rc < 0)
@@ -839,14 +906,21 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 	int cpu;
 	u64 strp_nr;
 	u64 strp_block_off;
-	int BLOCK_SHIFT = PAGE_SHIFT - NOVA_STRIPE_SHIFT;
+	int BLOCK_SHIFT;
+
+#if NOVA_XXHASH_CSUM
+	BLOCK_SHIFT = PAGE_SHIFT;
+#else
+	BLOCK_SHIFT = PAGE_SHIFT - NOVA_STRIPE_SHIFT;
+#endif
 
 	if (!data_csum) {
 		nova_dbg("%s: Data checksum is disabled!\n", __func__);
 		return NULL;
 	}
 
-	cpu = nova_block_to_cpu(sbi, blocknr);
+	// blocknr index to a data block, and we calculate the meta csum addr here.
+	cpu = nova_block_to_cpu(sbi, blocknr, 0);
 
 	// nova_dbg_verbose("%s: blocknr: %#llx, locate on cpu: %d\n", __func__,
 	// 		 blocknr, cpu);
@@ -857,20 +931,22 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 	}
 
 	// stripe number = block index on per cpu list << BLOCK_SHIFT
-	strp_nr = (blocknr - cpu * sbi->per_list_blocks) << BLOCK_SHIFT;
+	strp_nr = (blocknr - cpu * sbi->per_data_list_blocks) << BLOCK_SHIFT;
 	strp_block_off = (strp_nr * NOVA_DATA_CSUM_LEN) >> PAGE_SHIFT;
 
 	free_list = nova_get_free_list(sb, cpu);
 	if (replica == 0)
 		blockoff = nova_get_block_off(
-			sb, free_list->csum_start + strp_block_off,
-			NOVA_BLOCK_TYPE_4K);
+			sb, free_list->meta_list.csum_start + strp_block_off,
+			NOVA_BLOCK_TYPE_4K, 1);
 	else
 		blockoff = nova_get_block_off(
-			sb, free_list->replica_csum_start + strp_block_off,
-			NOVA_BLOCK_TYPE_4K);
+			sb,
+			free_list->meta_list.replica_csum_start +
+				strp_block_off,
+			NOVA_BLOCK_TYPE_4K, 1);
 
-	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff);
+	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff, 1);
 
 	return data_csum_addr;
 }
@@ -890,7 +966,7 @@ static inline void *nova_get_parity_addr(struct super_block *sb,
 		return NULL;
 	}
 
-	cpu = nova_block_to_cpu(sbi, blocknr);
+	cpu = nova_block_to_cpu(sbi, blocknr, 0);
 
 	if (cpu >= sbi->cpus) {
 		nova_dbg("%s: Invalid blocknr %lu\n", __func__, blocknr);
@@ -898,27 +974,16 @@ static inline void *nova_get_parity_addr(struct super_block *sb,
 	}
 
 	free_list = nova_get_free_list(sb, cpu);
-	strp_block_off =
-		((blocknr - free_list->block_start) << NOVA_STRIPE_SHIFT) >>
-		PAGE_SHIFT;
-	blockoff = nova_get_block_off(sb,
-				      free_list->parity_start + strp_block_off,
-				      NOVA_BLOCK_TYPE_4K);
+	strp_block_off = ((blocknr - free_list->data_list.block_start)
+			  << NOVA_STRIPE_SHIFT) >>
+			 PAGE_SHIFT;
+	blockoff = nova_get_block_off(
+		sb, free_list->meta_list.parity_start + strp_block_off,
+		NOVA_BLOCK_TYPE_4K, 1);
 
-	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff);
+	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff, 1);
 
 	return data_csum_addr;
-}
-
-static inline int nova_get_init_nsocket(struct nova_sb_info *sbi)
-{
-	return xor_random() % sbi->sockets;
-}
-
-static inline int nova_get_nsocket(struct nova_sb_info *sbi,
-				   struct nova_inode_info_header *sih)
-{
-	return ((sih->nsocket + 1) % sbi->sockets);
 }
 
 #include "delegation.h"
@@ -927,7 +992,7 @@ static inline int nova_get_nsocket(struct nova_sb_info *sbi,
  * socket: kmem_dest fall in which socket
  */
 static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
-					void *kubuf_src, size_t bytes,
+					void *kubuf_src, size_t bytes, int meta,
 					int socket, int zero, int flush_cache,
 					int sfence, long *issued_cnt,
 					struct nova_notifyer *completed_cnt,
@@ -953,9 +1018,6 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 				(unsigned long)kmem_dest);
 			left = memcpy_to_pmem_nocache(kmem_dest, kubuf_src,
 						      bytes);
-			//TODO: remove
-			nova_dbg_verbose("%s: kubuf content: %s, size: %ld\n",
-					 __func__, (char *)kubuf_src, bytes);
 		}
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
@@ -964,7 +1026,7 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 		left = nova_do_write_delegation(NOVA_SB(sb), current->mm,
 						(unsigned long)kubuf_src,
 						(unsigned long)kmem_dest, bytes,
-						socket, zero, flush_cache,
+						meta, socket, zero, flush_cache,
 						sfence, issued_cnt,
 						completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_w_t, delegation_time);
@@ -978,8 +1040,8 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
  * socket: kmem_src fall in which socket
  */
 static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
-				       void *kmem_src, size_t bytes, int socket,
-				       int zero, long *issued_cnt,
+				       void *kmem_src, size_t bytes, int meta,
+				       int socket, int zero, long *issued_cnt,
 				       struct nova_notifyer *completed_cnt,
 				       int wait_hint)
 {
@@ -1008,8 +1070,8 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 		NOVA_START_TIMING(do_delegation_r_t, delegation_time);
 		left = nova_do_read_delegation(NOVA_SB(sb), current->mm,
 					       (unsigned long)ubuf_dest,
-					       (unsigned long)kmem_src, bytes,
-					       socket, zero, issued_cnt,
+					       (unsigned long)kmem_src, meta,
+					       bytes, socket, zero, issued_cnt,
 					       completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_r_t, delegation_time);
 	}
@@ -1087,9 +1149,8 @@ int nova_check_overlap_vmas(struct super_block *sb,
 			    unsigned long pgoff, unsigned long num_pages);
 int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 				 loff_t pos, size_t count,
-				 unsigned long blocknr, int socket,
-				 void *ubuf_copy, int *head, int *tail,
-				 long *issued_cnt,
+				 unsigned long blocknr, void *ubuf_copy,
+				 int *head, int *tail, long *issued_cnt,
 				 struct nova_notifyer *completed_cnt);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 			   loff_t pos, size_t count, char *ubuf_copy,

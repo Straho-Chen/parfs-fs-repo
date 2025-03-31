@@ -115,7 +115,7 @@ static int nova_update_entry_pfn(struct super_block *sb,
 
 	addr = vma->vm_start + ((start_pgoff - vma->vm_pgoff) << PAGE_SHIFT);
 	pfn = nova_get_pfn(sb, nova_get_block_off(sb, entry->blocknr,
-						  sih->i_blk_type)) +
+						  sih->i_blk_type, 0)) +
 	      start_pgoff - entry->pgoff;
 	size = num_pages << PAGE_SHIFT;
 
@@ -186,7 +186,7 @@ static int nova_dax_cow_mmap_handler(struct super_block *sb,
 		}
 
 		entry = (struct nova_file_write_entry *)
-			nova_get_virt_addr_from_offset(sb, curr_p);
+			nova_get_virt_addr_from_offset(sb, curr_p, 1);
 
 		if (metadata_csum == 0)
 			entryc = entry;
@@ -344,8 +344,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 
 		from_blocknr = get_nvmm(sb, sih, entryc, start_blk);
 		from_blockoff =
-			nova_get_block_off(sb, from_blocknr, pi->i_blk_type);
-		from_kmem = nova_get_virt_addr_from_offset(sb, from_blockoff);
+			nova_get_block_off(sb, from_blocknr, pi->i_blk_type, 0);
+		from_kmem = nova_get_virt_addr_from_offset(sb, from_blockoff, 0);
 
 		if (entryc->reassigned == 0)
 			avail_blocks =
@@ -370,8 +370,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 			goto out;
 		}
 
-		to_blockoff = nova_get_block_off(sb, blocknr, pi->i_blk_type);
-		to_kmem = nova_get_virt_addr_from_offset(sb, to_blockoff);
+		to_blockoff = nova_get_block_off(sb, blocknr, pi->i_blk_type, 0);
+		to_kmem = nova_get_virt_addr_from_offset(sb, to_blockoff, 0);
 		entry_pgoff = start_blk;
 
 		copy_blocks = allocated;

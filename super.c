@@ -162,68 +162,190 @@ static int nova_get_nvmm_info(struct super_block *sb, struct nova_sb_info *sbi)
 			return -EINVAL;
 		}
 
-		pmem_ar_dev.start_virt_addr[i] = (unsigned long)virt_addr;
+		pmem_ar_dev.virt_addr[i] = (unsigned long)virt_addr;
+		pmem_ar_dev.phy_addr[i] = pfn_t_to_pfn(__pfn_t) << PAGE_SHIFT;
 		pmem_ar_dev.size_in_bytes[i] = size;
+	}
 
-		if (i == 0 || virt_addr < sbi->virt_addr) {
-			sbi->virt_addr = virt_addr;
-			sbi->phys_addr = pfn_t_to_pfn(__pfn_t) << PAGE_SHIFT;
-			// place all alter inode and reserved inodes on head pm
-			sbi->replica_reserved_inodes_addr =
-				virt_addr + size -
-				(sbi->tail_reserved_blocks << PAGE_SHIFT);
-			sbi->replica_sb_addr = virt_addr + size - PAGE_SIZE;
-			sbi->head_socket = i;
+	sbi->device_num = pmem_ar_dev.elem_num;
+
+	return 0;
+}
+
+static inline void nova_config_1_nvmm(struct nova_sb_info *sbi)
+{
+	/*
+	 * Store meta on the head and then data
+	 * Use 1/3 capacity for meta and 2/3 for data
+	 */
+	size_t meta_size, data_size;
+
+	meta_size = roundup_pow_of_two(pmem_ar_dev.size_in_bytes[0] / 3);
+	sbi->meta_start_virt = (void *)pmem_ar_dev.virt_addr[0];
+	// reserved region
+	sbi->replica_reserved_inodes_addr =
+		sbi->meta_start_virt + meta_size -
+		(sbi->tail_reserved_blocks << PAGE_SHIFT);
+	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
+	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+
+	data_size = pmem_ar_dev.size_in_bytes[0] - meta_size;
+	sbi->data_start_virt = sbi->meta_start_virt + meta_size;
+	sbi->phys_addr = pmem_ar_dev.phy_addr[0] + meta_size;
+	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
+
+	sbi->initsize = meta_size + data_size;
+
+	// init block info
+	sbi->block_info[0].start_block = 0;
+	sbi->block_info[0].end_block = (sbi->initsize >> PAGE_SHIFT) - 1;
+
+	sbi->meta_head_socket = 0;
+	sbi->meta_sockets = 1;
+	sbi->data_head_socket = 0;
+	sbi->data_sockets = 1;
+	nova_info(
+		"use 1 nvm; meta_start_virt: %#lx, meta_size: %lu; data_start_virt: %#lx, data_size: %lu\n",
+		(unsigned long)sbi->meta_start_virt, meta_size,
+		(unsigned long)sbi->data_start_virt, data_size);
+}
+
+static inline void nova_config_2_nvmm(struct nova_sb_info *sbi)
+{
+	/*
+	 * Store meta and data on the first socket,
+	 * and the second socket is only used for data.
+	 *
+	 * For convenience, we just use half of the second socket for data.
+	 */
+	size_t meta_size, data_size;
+
+	meta_size = pmem_ar_dev.size_in_bytes[0] / 2;
+	sbi->meta_start_virt = (void *)pmem_ar_dev.virt_addr[0];
+	// reserved region
+	sbi->replica_reserved_inodes_addr =
+		sbi->meta_start_virt + meta_size -
+		(sbi->tail_reserved_blocks << PAGE_SHIFT);
+	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
+	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+
+	data_size = pmem_ar_dev.size_in_bytes[0] +
+		    pmem_ar_dev.size_in_bytes[1] - meta_size;
+	sbi->data_start_virt = (void *)(sbi->meta_start_virt + meta_size);
+	sbi->phys_addr = pmem_ar_dev.phy_addr[0] + meta_size;
+	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
+
+	sbi->initsize = meta_size + data_size;
+
+	// init block info
+	// meta and data use the same socket
+	sbi->block_info[0].start_block = 0;
+	sbi->block_info[0].end_block = sbi->meta_num_blocks - 1;
+
+	sbi->block_info[1].start_block =
+		(pmem_ar_dev.virt_addr[1] -
+		 (unsigned long)sbi->data_start_virt) >>
+		PAGE_SHIFT;
+	sbi->block_info[1].end_block =
+		sbi->block_info[1].start_block +
+		(pmem_ar_dev.size_in_bytes[1] >> PAGE_SHIFT) - 1;
+
+	sbi->meta_head_socket = 0;
+	sbi->meta_sockets = 1;
+	sbi->data_head_socket = 0;
+	sbi->data_sockets = 2;
+	nova_info(
+		"use 2 nvm; meta_start_virt: %#lx, meta_size: %lu; data_start_virt: %#lx, data_size: %lu\n",
+		(unsigned long)sbi->meta_start_virt, meta_size,
+		(unsigned long)sbi->data_start_virt, data_size);
+	sbi->meta_data_mix = 1;
+}
+
+static inline void nova_config_3_nvmm(struct nova_sb_info *sbi)
+{
+	int i;
+	/*
+	 * Store meta on one socket and data on the others
+	 */
+	size_t meta_size, data_size;
+
+	meta_size = pmem_ar_dev.size_in_bytes[0];
+	sbi->meta_start_virt = (void *)pmem_ar_dev.virt_addr[0];
+	// reserved region
+	sbi->replica_reserved_inodes_addr =
+		sbi->meta_start_virt + meta_size -
+		(sbi->tail_reserved_blocks << PAGE_SHIFT);
+	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
+	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+
+	data_size = 0;
+	for (i = 1; i < pmem_ar_dev.elem_num; i++) {
+		data_size += pmem_ar_dev.size_in_bytes[i];
+		if ((unsigned long)sbi->data_start_virt >
+			    pmem_ar_dev.virt_addr[i] ||
+		    sbi->data_start_virt == NULL) {
+			sbi->data_start_virt = (void *)pmem_ar_dev.virt_addr[i];
+			sbi->phys_addr = pmem_ar_dev.phy_addr[i];
 		}
 	}
-	sbi->tail_socket = i - 1;
+	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
 
-	if (!sbi->virt_addr) {
-		nova_err(sb, "ioremap of the nova image failed(1)\n");
+	sbi->initsize = meta_size + data_size;
+
+	// init block info
+	// meta
+	sbi->block_info[0].start_block = 0;
+	sbi->block_info[0].end_block = sbi->meta_num_blocks - 1;
+
+	// data
+	for (i = 1; i < pmem_ar_dev.elem_num; i++) {
+		sbi->block_info[i].start_block =
+			(pmem_ar_dev.virt_addr[i] -
+			 (unsigned long)sbi->data_start_virt) >>
+			PAGE_SHIFT;
+		sbi->block_info[i].end_block =
+			sbi->block_info[i].start_block +
+			(pmem_ar_dev.size_in_bytes[i] >> PAGE_SHIFT) - 1;
+	}
+
+	sbi->meta_head_socket = 0;
+	sbi->meta_sockets = 1;
+	sbi->data_head_socket = 1;
+	sbi->data_sockets = pmem_ar_dev.elem_num - 1;
+	nova_info(
+		"use %d nvm; meta_start_virt: %#lx, meta_size: %lu, meta_sockets: %d; data_start_virt: %#lx, data_size: %lu, data_sockets: %d\n",
+		pmem_ar_dev.elem_num, (unsigned long)sbi->meta_start_virt,
+		meta_size, sbi->meta_sockets,
+		(unsigned long)sbi->data_start_virt, data_size,
+		sbi->data_sockets);
+}
+
+static inline int nova_config_nvmm(struct super_block *sb,
+				   struct nova_sb_info *sbi)
+{
+	/*
+	 * Make sure that we have already get nvmm info and fill the pmem_ar_dev.
+	 *
+	 * First check the pmem_ar_dev number. We hope that we have 3 num,
+	 * which means we can use one pmem to store meta and the others to store data.
+	 *
+	 * Configuration type:
+	 * 1. 1 pmem device: 1 pmem device to store both meta and data
+	 * 2. 2 pmem devices: 1 pmem device to store meta and the other to store data
+	 * 3. more than 3 pmem devices (include 3): 1 pmem device to store meta and the other 2 to store data
+	 */
+	nova_get_nvmm_info(sb, sbi);
+	if (pmem_ar_dev.elem_num == 1)
+		nova_config_1_nvmm(sbi);
+	else if (pmem_ar_dev.elem_num == 2)
+		nova_config_2_nvmm(sbi);
+	else
+		nova_config_3_nvmm(sbi);
+
+	if (sbi->meta_start_virt == NULL || sbi->data_start_virt == NULL) {
+		nova_err(sbi->sb, "Invalid pmem device address\n");
 		return -EINVAL;
 	}
-
-	sbi->num_blocks = 0;
-	sbi->initsize = 0;
-
-	for (i = 0; i < pmem_ar_dev.elem_num; i++) {
-		/*
-     	* Implicitly assume 4KB block size is bad, but it is all over odinfs
-     	* code ...
-		*/
-
-		unsigned long size_in_blocks = pmem_ar_dev.size_in_bytes[i] >>
-					       PAGE_SHIFT;
-
-		/*
-     	* We use the block number to hide the virtual address gap between
-     	* NVM dimms
-     	*/
-
-		sbi->block_info[i].start_block =
-			(pmem_ar_dev.start_virt_addr[i] -
-			 (unsigned long)sbi->virt_addr) >>
-			PAGE_SHIFT;
-
-		sbi->block_info[i].end_block =
-			sbi->block_info[i].start_block + size_in_blocks - 1;
-
-		sbi->num_blocks += size_in_blocks;
-		sbi->initsize += pmem_ar_dev.size_in_bytes[i];
-
-		nova_dbg_verbose(
-			"head socket: %d, start_block: %lu, end_block: %lu\n",
-			i, sbi->block_info[i].start_block,
-			sbi->block_info[i].end_block);
-	}
-
-	nova_dbg_verbose(
-		"%s: dev %s, phys_addr 0x%llx, virt_addr 0x%lx, size %ld\n",
-		__func__, pmem_ar_dev.gd->disk_name, sbi->phys_addr,
-		(unsigned long)sbi->virt_addr, sbi->initsize);
-
-	/* duplicate the info in the sbi */
-	sbi->device_num = pmem_ar_dev.elem_num;
 
 	return 0;
 }
@@ -493,8 +615,12 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	/* clear out super-block and inode table */
 	memset_nt(super, 0, sbi->head_reserved_blocks * sbi->blocksize);
 
-	pi = nova_get_inode_by_ino(sb, NOVA_BLOCKNODE_INO);
-	pi->nova_ino = NOVA_BLOCKNODE_INO;
+	pi = nova_get_inode_by_ino(sb, NOVA_DATA_BLOCKNODE_INO);
+	pi->nova_ino = NOVA_DATA_BLOCKNODE_INO;
+	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
+
+	pi = nova_get_inode_by_ino(sb, NOVA_META_BLOCKNODE_INO);
+	pi->nova_ino = NOVA_META_BLOCKNODE_INO;
 	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
 
 	pi = nova_get_inode_by_ino(sb, NOVA_SNAPSHOT_INO);
@@ -570,11 +696,11 @@ static inline void set_default_opts(struct nova_sb_info *sbi)
 	sbi->head_reserved_blocks = HEAD_RESERVED_BLOCKS;
 	sbi->tail_reserved_blocks = TAIL_RESERVED_BLOCKS;
 	sbi->cpus = num_online_cpus();
-	sbi->sockets = pmem_ar_dev.elem_num;
 	sbi->delegation_ready = 0;
 	nova_info("%d cpus online\n", sbi->cpus);
 	sbi->map_id = 0;
 	sbi->snapshot_si = NULL;
+	sbi->meta_data_mix = 0;
 	sbi->blocksize = PAGE_SIZE;
 	sbi->blocksize_bits = PAGE_SHIFT;
 	nova_set_blocksize(sbi->sb, sbi->blocksize);
@@ -712,7 +838,7 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 		goto out;
 	}
 
-	retval = nova_get_nvmm_info(sb, sbi);
+	retval = nova_config_nvmm(sb, sbi);
 	if (retval) {
 		nova_err(sb, "%s: Failed to get nvmm info.", __func__);
 		goto out;
@@ -885,13 +1011,25 @@ setup_sb:
 	if (!(sb->s_flags & MS_RDONLY))
 		nova_update_mount_time(sb);
 
-	retval = nova_init_ring_buffers(sbi->sockets);
+	/*
+	 * We need to init the delegation thread for meta too.
+	 * So that we can do meta block clean in delegation way.
+	 */
+	if (sbi->meta_data_mix)
+		retval = nova_init_ring_buffers(sbi->data_sockets);
+	else
+		retval = nova_init_ring_buffers(sbi->meta_sockets +
+						sbi->data_sockets);
 	if (retval) {
 		nova_err(sb, "Failed to initialize ring buffers\n");
 		goto out;
 	}
 
-	retval = nova_init_agents(sbi->cpus, sbi->sockets);
+	if (sbi->meta_data_mix)
+		retval = nova_init_agents(sbi->cpus, sbi->data_sockets);
+	else
+		retval = nova_init_agents(sbi->cpus, sbi->meta_sockets +
+							     sbi->data_sockets);
 	if (retval) {
 		nova_err(sb, "Failed to initialize agents\n");
 		goto out;
@@ -943,7 +1081,7 @@ int nova_statfs(struct dentry *d, struct kstatfs *buf)
 	buf->f_type = NOVA_SUPER_MAGIC;
 	buf->f_bsize = sb->s_blocksize;
 
-	buf->f_blocks = sbi->num_blocks;
+	buf->f_blocks = sbi->data_num_blocks;
 	buf->f_bfree = buf->f_bavail = nova_count_free_blocks(sb);
 	buf->f_files = LONG_MAX;
 	buf->f_ffree = LONG_MAX - sbi->s_inodes_used_count;
@@ -1034,13 +1172,13 @@ static void nova_put_super(struct super_block *sb)
 
 	/* It's unmount time, so unmap the nova memory */
 	//	nova_print_free_lists(sb);
-	if (sbi->virt_addr) {
+	if (sbi->meta_start_virt) {
 		nova_save_snapshots(sb);
 		kmem_cache_free(nova_inode_cachep, sbi->snapshot_si);
 		nova_save_inode_list_to_log(sb);
 		/* Save everything before blocknode mapping! */
 		nova_save_blocknode_mappings_to_log(sb);
-		sbi->virt_addr = NULL;
+		sbi->meta_start_virt = NULL;
 	}
 
 	nova_delete_free_lists(sb);

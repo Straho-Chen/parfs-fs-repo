@@ -17,7 +17,8 @@ struct pmem_ar_dev {
 
 	struct dax_device *dax_dev[PMEM_AR_MAX_DEVICE];
 
-	unsigned long start_virt_addr[PMEM_AR_MAX_DEVICE];
+	unsigned long virt_addr[PMEM_AR_MAX_DEVICE];
+	unsigned long phy_addr[PMEM_AR_MAX_DEVICE];
 	unsigned long size_in_bytes[PMEM_AR_MAX_DEVICE];
 };
 

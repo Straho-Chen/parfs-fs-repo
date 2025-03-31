@@ -243,7 +243,7 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 	pic->log_tail = pic->log_head = new_block;
 
 	de_entry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
-		sb, new_block);
+		sb, new_block, 1);
 
 	length = nova_init_dentry(sb, de_entry, self_ino, parent_ino, epoch_id);
 
@@ -265,7 +265,7 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 	pic->alter_log_tail = pic->alter_log_head = new_block;
 
 	de_entry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
-		sb, new_block);
+		sb, new_block, 1);
 
 	length = nova_init_dentry(sb, de_entry, self_ino, parent_ino, epoch_id);
 
@@ -281,7 +281,7 @@ int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
 		return ret;
 
 	alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-		sb, alter_pi_addr);
+		sb, alter_pi_addr, 1);
 	if (!alter_pi)
 		return -EINVAL;
 
@@ -338,7 +338,7 @@ int nova_add_dentry(struct dentry *dentry, u64 ino, int inc_link,
 
 	curr_entry = update->curr_entry;
 	direntry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
-		sb, curr_entry);
+		sb, curr_entry, 1);
 	sih->last_dentry = curr_entry;
 	ret = nova_insert_dir_tree(sb, sih, name, namelen, direntry);
 
@@ -428,7 +428,7 @@ int nova_remove_dentry(struct dentry *dentry, int dec_link,
 	    nova_can_inplace_update_dentry(sb, old_dentry, epoch_id)) {
 		nova_inplace_update_dentry(sb, dir, old_dentry, dec_link,
 					   epoch_id);
-		curr_entry = nova_get_addr_off(sbi, old_dentry);
+		curr_entry = nova_get_addr_off(sbi, old_dentry, 1);
 
 		sih->last_dentry = curr_entry;
 		/* Leave create/delete_dentry to NULL
@@ -455,7 +455,7 @@ int nova_remove_dentry(struct dentry *dentry, int dec_link,
 	curr_entry = update->curr_entry;
 	update->delete_dentry =
 		(struct nova_dentry *)nova_get_virt_addr_from_offset(
-			sb, curr_entry);
+			sb, curr_entry, 1);
 	sih->last_dentry = curr_entry;
 	sih->trans_id++;
 out:
@@ -493,8 +493,8 @@ int nova_invalidate_dentries(struct super_block *sb,
 	if (!old_entry_freeable(sb, create_dentryc->epoch_id))
 		return 0;
 
-	create_curr = nova_get_addr_off(sbi, create_dentry);
-	delete_curr = nova_get_addr_off(sbi, delete_dentry);
+	create_curr = nova_get_addr_off(sbi, create_dentry, 1);
+	delete_curr = nova_get_addr_off(sbi, delete_dentry, 1);
 
 	nova_invalidate_logentry(sb, create_dentry, DIR_LOG, 0);
 
@@ -557,7 +557,7 @@ static int nova_readdir_slow_rbtree(struct file *file, struct dir_context *ctx)
 			return ret;
 		}
 
-		child_pi = nova_get_virt_addr_from_offset(sb, pi_addr);
+		child_pi = nova_get_virt_addr_from_offset(sb, pi_addr, 1);
 		nova_dbg_verbose(
 			"ctx: ino %llu, name %s, name_len %u, de_len %u, csum 0x%x\n",
 			(u64)ino, entry->name, entry->name_len, entry->de_len,
@@ -600,7 +600,7 @@ static u64 nova_find_next_dentry_addr(struct super_block *sb,
 	found = nova_find_range_node(&sih->rb_tree, pos, NODE_DIR, &ret_node);
 	if (found == 1 && pos == ret_node->hash) {
 		entry = ret_node->direntry;
-		addr = nova_get_addr_off(sbi, entry);
+		addr = nova_get_addr_off(sbi, entry, 1);
 	}
 
 	return addr;
@@ -664,7 +664,7 @@ static int nova_readdir_fast(struct file *file, struct dir_context *ctx)
 			return -EINVAL;
 		}
 
-		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
+		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
 		type = nova_get_entry_type(addr);
 		switch (type) {
 		case SET_ATTR:
@@ -683,7 +683,7 @@ static int nova_readdir_fast(struct file *file, struct dir_context *ctx)
 		}
 
 		entry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
-			sb, curr_p);
+			sb, curr_p, 1);
 		nova_dbg_verbose(
 			"curr_p: 0x%llx, type %d, ino %llu, name %s, namelen %u, rec len %u\n",
 			curr_p, entry->entry_type, le64_to_cpu(entry->ino),
@@ -711,7 +711,7 @@ static int nova_readdir_fast(struct file *file, struct dir_context *ctx)
 				return ret;
 			}
 
-			child_pi = nova_get_virt_addr_from_offset(sb, pi_addr);
+			child_pi = nova_get_virt_addr_from_offset(sb, pi_addr, 1);
 			nova_dbg_verbose(
 				"ctx: ino %llu, name %s, name_len %u, de_len %u\n",
 				(u64)ino, entry->name, entry->name_len,

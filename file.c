@@ -300,7 +300,8 @@ static long nova_fallocate(struct file *file, int mode, loff_t offset,
 			goto out;
 		}
 
-		entry = nova_get_virt_addr_from_offset(sb, update.curr_entry);
+		entry = nova_get_virt_addr_from_offset(sb, update.curr_entry,
+						       1);
 		nova_reset_csum_parity_range(sb, sih, entry, start_blk,
 					     start_blk + allocated, 1, 0);
 
@@ -582,9 +583,10 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 		}
 
 		nvmm = get_nvmm(sb, sih, entryc, index);
-		socket = nova_block_to_socket(sbi, nvmm, sih->i_blk_type);
+		socket = nova_block_to_socket(sbi, nvmm, sih->i_blk_type, 0);
 		dax_mem = nova_get_virt_addr_from_offset(
-			sb, nova_get_block_off(sb, nvmm, sih->i_blk_type));
+			sb, nova_get_block_off(sb, nvmm, sih->i_blk_type, 0),
+			0);
 
 memcpy:
 		nr = nr - offset;
@@ -617,7 +619,7 @@ memcpy:
 #endif
 skip_verify:
 		left = do_nova_nvmm_read(sb, buf + copied, dax_mem + offset, nr,
-					 socket, zero, issued_cnt,
+					 0, socket, zero, issued_cnt,
 					 completed_cnt,
 					 len >= NOVA_READ_WAIT_THRESHOLD);
 
@@ -716,6 +718,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	int i, socket;
 	int head, tail;
 	size_t delegation_size;
+	int data_num_blks = 1;
+	unsigned long blocknr_loop;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -758,7 +762,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 	count = len;
 
-	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr);
+	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
 
 	/* nova_inode tail pointer will be updated and we make sure all other
 	 * inode fields are good before checksumming the whole structure
@@ -778,6 +782,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 	data_bits = nova_inode_blk_shift(sih);
 	blocksize_mask = nova_inode_blk_size(sih) - 1;
+	data_num_blks = nova_get_numblocks(sih->i_blk_type);
 	offset = pos & blocksize_mask;
 	num_blocks = ((count + offset - 1) >> data_bits) + 1;
 	total_blocks = num_blocks;
@@ -831,7 +836,6 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 		step++;
 		bytes = nova_inode_blk_size(sih) * allocated - offset;
-		socket = nova_block_to_socket(sbi, blocknr, sih->i_blk_type);
 		if (bytes > count)
 			bytes = count;
 
@@ -843,9 +847,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			 * Copy user data to the new block at the same time.
 			 */
 			ret = nova_handle_head_tail_blocks(
-				sb, inode, pos, bytes, blocknr, socket,
-				ubuf_copy, &head, &tail, issued_cnt,
-				completed_cnt);
+				sb, inode, pos, bytes, blocknr, ubuf_copy,
+				&head, &tail, issued_cnt, completed_cnt);
 			if (ret)
 				goto out;
 		}
@@ -854,7 +857,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				 tail);
 
 		// move blocknr to the start of contiguous blocks
-		blocknr += head;
+		blocknr += head * data_num_blks;
 		// remove head and tail
 		allocated -= head;
 		allocated -= tail;
@@ -863,17 +866,24 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		copied = 0;
 		for (i = 0; i < allocated; i++) {
 			/* Now copy from user buf */
+			blocknr_loop = blocknr + i * data_num_blks;
 			kmem = nova_get_virt_addr_from_offset(
 				inode->i_sb,
-				nova_get_block_off(sb, blocknr + i,
-						   sih->i_blk_type));
+				nova_get_block_off(sb, blocknr_loop,
+						   sih->i_blk_type, 0),
+				0);
+			socket = nova_block_to_socket(sbi, blocknr_loop,
+						      sih->i_blk_type, 0);
+			if (sbi->meta_data_mix && socket == 2) {
+				socket = 1;
+			}
 
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			copied += do_nova_nvmm_write(
 				sb, kmem,
 				(void *)(ubuf_copy + offset +
 					 delegation_size * i),
-				delegation_size, socket, 0, 1, 0, issued_cnt,
+				delegation_size, 0, socket, 0, 1, 0, issued_cnt,
 				completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD);
 #else
@@ -899,7 +909,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 					fini_delegation_time);
 		}
 		// restore blocknr
-		blocknr -= head;
+		blocknr -= head * data_num_blks;
 		allocated += head;
 		allocated += tail;
 		copied = bytes;

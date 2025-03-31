@@ -19,7 +19,8 @@ DEFINE_PER_CPU(struct nova_notifyer_array, completed_cnt);
 unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 				     struct mm_struct *mm, unsigned long uaddr,
 				     unsigned long kaddr, unsigned long bytes,
-				     int socket, int zero, long *issued_cnt,
+				     int meta, int socket, int zero,
+				     long *issued_cnt,
 				     struct nova_notifyer *completed_cnt,
 				     int wait_hint)
 {
@@ -88,7 +89,12 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 
 	NOVA_START_TIMING(send_request_r_t, send_request_time);
 	do {
-		thread = nova_choose_rings();
+		if (meta) {
+			thread = 0;
+		} else {
+			thread = nova_choose_rings();
+			thread = thread ? thread : 1;
+		}
 		NOVA_START_TIMING(ring_buffer_enque_r_t,
 				  ring_buffer_enque_time);
 		ret = nova_send_request(nova_ring_buffer[socket][thread],
@@ -107,13 +113,12 @@ out:
 /* make this a global variable so that the compiler will not optimize it */
 int nova_no_optimize;
 
-unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
-				      struct mm_struct *mm, unsigned long uaddr,
-				      unsigned long kaddr, unsigned long bytes,
-				      int socket, int zero, int flush_cache,
-				      int sfence, long *issued_cnt,
-				      struct nova_notifyer *completed_cnt,
-				      int wait_hint)
+unsigned int
+nova_do_write_delegation(struct nova_sb_info *sbi, struct mm_struct *mm,
+			 unsigned long uaddr, unsigned long kaddr,
+			 unsigned long bytes, int meta, int socket, int zero,
+			 int flush_cache, int sfence, long *issued_cnt,
+			 struct nova_notifyer *completed_cnt, int wait_hint)
 {
 	struct nova_delegation_request request;
 	int ret = 0;
@@ -190,7 +195,12 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 
 	NOVA_START_TIMING(send_request_w_t, send_request_time);
 	do {
-		thread = nova_choose_rings();
+		if (meta) {
+			thread = 0;
+		} else {
+			thread = nova_choose_rings();
+			thread = thread ? thread : 1;
+		}
 		NOVA_START_TIMING(ring_buffer_enque_w_t,
 				  ring_buffer_enque_time);
 		ret = nova_send_request(nova_ring_buffer[socket][thread],

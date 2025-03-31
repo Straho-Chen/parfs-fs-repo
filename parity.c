@@ -125,7 +125,7 @@ int nova_update_pgoff_parity(struct super_block *sb,
 	if (blockoff == 0)
 		return 0;
 
-	dax_mem = nova_get_virt_addr_from_offset(sb, blockoff);
+	dax_mem = nova_get_virt_addr_from_offset(sb, blockoff, 0);
 
 	blocknr = nova_get_blocknr(sb, blockoff, sih->i_blk_type);
 	nova_update_block_parity(sb, dax_mem, blocknr, zero);
@@ -297,8 +297,8 @@ int nova_restore_data(struct super_block *sb, unsigned long blocknr,
 	int ret = 0;
 
 	NOVA_START_TIMING(restore_data_t, restore_time);
-	blockoff = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_4K);
-	blockptr = nova_get_virt_addr_from_offset(sb, blockoff);
+	blockoff = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_4K, 0);
+	blockptr = nova_get_virt_addr_from_offset(sb, blockoff, 0);
 	stripptr = blockptr + (badstrip_id << strp_shift);
 
 	block = kmalloc(sb->s_blocksize, GFP_KERNEL);
@@ -406,7 +406,7 @@ int nova_update_truncated_block_parity(struct super_block *sb,
 	if (nvmm == 0)
 		return -EFAULT;
 
-	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm);
+	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
 
 	blocknr = nova_get_blocknr(sb, nvmm, btype);
 

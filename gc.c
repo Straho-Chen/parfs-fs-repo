@@ -33,7 +33,7 @@ static bool curr_log_entry_invalid(struct super_block *sb,
 	u8 type;
 	bool ret = true;
 
-	addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
+	addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
 
 	/* FIXME: this check might hurt performance for workloads that
 	 * frequently invokes gc
@@ -116,7 +116,7 @@ static bool curr_page_invalid(struct super_block *sb, struct nova_inode *pi,
 
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, page_head);
+			sb, page_head, 1);
 	rc = memcpy_mcsafe(&page_tail, &curr_page->page_tail,
 			   sizeof(struct nova_inode_page_tail));
 	if (rc) {
@@ -258,7 +258,7 @@ static int nova_gc_assign_new_entry(struct super_block *sb,
 	u8 type;
 	int ret = 0;
 
-	addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
+	addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
 	type = nova_get_entry_type(addr);
 	switch (type) {
 	case SET_ATTR:
@@ -275,13 +275,15 @@ static int nova_gc_assign_new_entry(struct super_block *sb,
 						    new_curr);
 		break;
 	case FILE_WRITE:
-		new_addr = (void *)nova_get_virt_addr_from_offset(sb, new_curr);
+		new_addr =
+			(void *)nova_get_virt_addr_from_offset(sb, new_curr, 1);
 		old_entry = (struct nova_file_write_entry *)addr;
 		new_entry = (struct nova_file_write_entry *)new_addr;
 		ret = nova_gc_assign_file_entry(sb, sih, old_entry, new_entry);
 		break;
 	case DIR_LOG:
-		new_addr = (void *)nova_get_virt_addr_from_offset(sb, new_curr);
+		new_addr =
+			(void *)nova_get_virt_addr_from_offset(sb, new_curr, 1);
 		old_dentry = (struct nova_dentry *)addr;
 		new_dentry = (struct nova_dentry *)new_addr;
 		if (sih->last_dentry == curr_p)
@@ -370,17 +372,17 @@ nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 			/* Copy entry to the new log */
 			nova_memunlock_block(
 				sb,
-				nova_get_virt_addr_from_offset(sb, new_curr),
+				nova_get_virt_addr_from_offset(sb, new_curr, 1),
 				&irq_flags);
 			/* length seem to be short(like the data struct size). We keep the memcpy here. */
 			memcpy_to_pmem_nocache(
-				nova_get_virt_addr_from_offset(sb, new_curr),
-				nova_get_virt_addr_from_offset(sb, curr_p),
+				nova_get_virt_addr_from_offset(sb, new_curr, 1),
+				nova_get_virt_addr_from_offset(sb, curr_p, 1),
 				length);
 			nova_inc_page_num_entries(sb, new_curr);
 			nova_memlock_block(
 				sb,
-				nova_get_virt_addr_from_offset(sb, new_curr),
+				nova_get_virt_addr_from_offset(sb, new_curr, 1),
 				&irq_flags);
 			nova_gc_assign_new_entry(sb, pi, sih, curr_p, new_curr);
 			new_curr += length;
@@ -393,7 +395,7 @@ nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 	tail_block = BLOCK_OFF(sih->log_tail);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, BLOCK_OFF(new_curr));
+			sb, BLOCK_OFF(new_curr), 1);
 	next = next_log_page(sb, new_curr);
 	if (next > 0)
 		nova_free_contiguous_log_blocks(sb, sih, next);
@@ -409,7 +411,7 @@ nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 	nova_update_inode_checksum(pic, 0);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, sih->alter_pi_addr);
+			sb, sih->alter_pi_addr, 1);
 		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
@@ -418,7 +420,7 @@ nova_inode_log_thorough_gc(struct super_block *sb, struct nova_inode *pi,
 	/* Step 3: Unlink the old log */
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, BLOCK_OFF(old_curr_p));
+			sb, BLOCK_OFF(old_curr_p), 1);
 	next = next_log_page(sb, old_curr_p);
 	if (next != tail_block) {
 		nova_err(sb, "Old log error: old curr_p 0x%lx, next 0x%lx ",
@@ -487,18 +489,18 @@ static unsigned long nova_inode_alter_log_thorough_gc(
 	new_curr = new_head;
 	while (1) {
 		nova_memunlock_block(
-			sb, nova_get_virt_addr_from_offset(sb, new_curr),
+			sb, nova_get_virt_addr_from_offset(sb, new_curr, 1),
 			&irq_flags);
 		/* TODO: 4K writes from nvmm to nvmm, shall we do delegation? */
 		memcpy_to_pmem_nocache(
-			nova_get_virt_addr_from_offset(sb, new_curr),
-			nova_get_virt_addr_from_offset(sb, curr_p),
+			nova_get_virt_addr_from_offset(sb, new_curr, 1),
+			nova_get_virt_addr_from_offset(sb, curr_p, 1),
 			LOG_BLOCK_TAIL);
 
 		nova_set_alter_page_address(sb, curr_p, new_curr);
-		nova_memlock_block(sb,
-				   nova_get_virt_addr_from_offset(sb, new_curr),
-				   &irq_flags);
+		nova_memlock_block(
+			sb, nova_get_virt_addr_from_offset(sb, new_curr, 1),
+			&irq_flags);
 
 		curr_p = next_log_page(sb, curr_p);
 
@@ -519,7 +521,7 @@ static unsigned long nova_inode_alter_log_thorough_gc(
 	alter_tail_block = BLOCK_OFF(sih->alter_log_tail);
 	alter_curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, BLOCK_OFF(new_curr));
+			sb, BLOCK_OFF(new_curr), 1);
 	alter_next = next_log_page(sb, new_curr);
 	if (alter_next > 0)
 		nova_free_contiguous_log_blocks(sb, sih, alter_next);
@@ -549,8 +551,9 @@ static unsigned long nova_inode_alter_log_thorough_gc(
 	nova_update_inode_checksum(pic, 0);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, sih->alter_pi_addr);
-		memcpy_to_pmem_nocache(alter_pi, pic, sizeof(struct nova_inode));
+			sb, sih->alter_pi_addr, 1);
+		memcpy_to_pmem_nocache(alter_pi, pic,
+				       sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
 	sih->alter_log_head = new_head;
@@ -558,7 +561,7 @@ static unsigned long nova_inode_alter_log_thorough_gc(
 	/* Step 4: Unlink the old log */
 	alter_curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, BLOCK_OFF(old_alter_curr_p));
+			sb, BLOCK_OFF(old_alter_curr_p), 1);
 	alter_next = next_log_page(sb, old_alter_curr_p);
 	if (alter_next != alter_tail_block) {
 		nova_err(sb, "Old log error: old curr_p 0x%lx, next 0x%lx ",
@@ -630,14 +633,15 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 		}
 
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr);
+			nova_get_virt_addr_from_offset(sb, curr, 1);
 		next = next_log_page(sb, curr);
 		if (next < 0)
 			break;
 
 		if (metadata_csum) {
 			alter_curr_page = (struct nova_inode_log_page *)
-				nova_get_virt_addr_from_offset(sb, alter_curr);
+				nova_get_virt_addr_from_offset(sb, alter_curr,
+							       1);
 			alter_next = next_log_page(sb, alter_curr);
 			if (alter_next < 0)
 				break;
@@ -693,7 +697,7 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 	nova_update_inode_checksum(pi, 0);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, sih->alter_pi_addr);
+			sb, sih->alter_pi_addr, 1);
 		memcpy_to_pmem_nocache(alter_pi, pic,
 				       sizeof(struct nova_inode));
 	}
@@ -738,8 +742,8 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 		blocks = nova_inode_log_thorough_gc(sb, pi, pic, sih, blocks,
 						    checked_pages);
 		if (metadata_csum)
-			nova_inode_alter_log_thorough_gc(sb, pi, pic, sih, blocks,
-							 checked_pages);
+			nova_inode_alter_log_thorough_gc(sb, pi, pic, sih,
+							 blocks, checked_pages);
 	}
 
 	return 0;

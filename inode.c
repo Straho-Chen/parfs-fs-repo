@@ -94,7 +94,7 @@ static int nova_alloc_inode_table(struct super_block *sb,
 		if (allocated != 1 || blocknr == 0)
 			return -ENOSPC;
 
-		block = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_2M);
+		block = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_2M, 1);
 		nova_memunlock_range(sb, inode_table, CACHELINE_SIZE,
 				     &irq_flags);
 		inode_table->log_head = block;
@@ -122,7 +122,6 @@ int nova_init_inode_table(struct super_block *sb)
 	pi->i_flags = 0;
 	pi->nova_ino = NOVA_INODETABLE_INO;
 
-	pi->i_nsocket = nova_get_init_nsocket(NOVA_SB(sb));
 	pi->i_blk_type = NOVA_BLOCK_TYPE_2M;
 	nova_memlock_inode(sb, pi, &irq_flags);
 
@@ -220,7 +219,7 @@ int nova_get_inode_address(struct super_block *sb, u64 ino, int version,
 			return -EINVAL;
 
 		curr_addr =
-			(unsigned long)nova_get_virt_addr_from_offset(sb, curr);
+			(unsigned long)nova_get_virt_addr_from_offset(sb, curr, 1);
 		/* Next page pointer in the last 8 bytes of the superpage */
 		curr_addr += nova_inode_blk_size(&sih) - 8;
 		curr = *(u64 *)(curr_addr);
@@ -239,7 +238,7 @@ int nova_get_inode_address(struct super_block *sb, u64 ino, int version,
 				return allocated;
 
 			curr = nova_get_block_off(sb, blocknr,
-						  NOVA_BLOCK_TYPE_2M);
+						  NOVA_BLOCK_TYPE_2M, 1);
 			nova_memunlock_range(sb, (void *)curr_addr,
 					     CACHELINE_SIZE, &irq_flags);
 			*(u64 *)(curr_addr) = curr;
@@ -500,7 +499,7 @@ static int nova_read_inode(struct super_block *sb, struct inode *inode,
 	unsigned long ino;
 
 	ret = nova_get_reference(sb, pi_addr, &fake_pi, (void **)&pi,
-				 sizeof(struct nova_inode));
+				 sizeof(struct nova_inode), 1);
 	if (ret) {
 		nova_dbg("%s: read pi @ 0x%llx failed\n", __func__, pi_addr);
 		goto bad_inode;
@@ -830,7 +829,7 @@ unsigned long nova_get_last_blocknr(struct super_block *sb,
 	int ret;
 
 	ret = nova_get_reference(sb, sih->pi_addr, &fake_pi, (void **)&pi,
-				 sizeof(struct nova_inode));
+				 sizeof(struct nova_inode), 1);
 	if (ret) {
 		nova_dbg("%s: read pi @ 0x%lx failed\n", __func__,
 			 sih->pi_addr);
@@ -869,7 +868,7 @@ static int nova_free_inode_resource(struct super_block *sb,
 	nova_update_inode_checksum(pi, 1);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, sih->alter_pi_addr);
+			sb, sih->alter_pi_addr, 1);
 		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
@@ -1005,7 +1004,7 @@ int nova_delete_dead_inode(struct super_block *sb, u64 ino)
 	if (err)
 		return err;
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr, 1);
 	sih = &si.header;
 
 	nova_dbg_verbose(
@@ -1103,7 +1102,7 @@ struct inode *nova_new_vfs_inode(struct mnt_idmap *idmap,
 			goto fail1;
 	}
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr, 1);
 	nova_dbg_verbose("%s: allocating inode %llu @ 0x%llx\n", __func__, ino,
 			 pi_addr);
 
@@ -1145,7 +1144,6 @@ struct inode *nova_new_vfs_inode(struct mnt_idmap *idmap,
 	 */
 	nova_memunlock_inode(sb, pi, &irq_flags);
 	pi->i_blk_type = NOVA_DEFAULT_BLOCK_TYPE;
-	pi->i_nsocket = nova_get_init_nsocket(sbi);
 	pi->i_flags = nova_mask_flags(mode, diri->i_flags);
 	pi->nova_ino = ino;
 	pi->create_epoch_id = epoch_id;
@@ -1153,7 +1151,7 @@ struct inode *nova_new_vfs_inode(struct mnt_idmap *idmap,
 
 	if (metadata_csum) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, alter_pi_addr);
+			sb, alter_pi_addr, 1);
 		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 
@@ -1214,7 +1212,7 @@ void nova_dirty_inode(struct inode *inode, int _flags)
 	if (sbi->mount_snapshot)
 		return;
 
-	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr);
+	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
 
 	/* check the inode before updating to make sure all fields are good */
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,

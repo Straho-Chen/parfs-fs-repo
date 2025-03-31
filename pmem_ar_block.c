@@ -176,8 +176,8 @@ int pmem_ar_out_range(void *p, unsigned long len)
 		return ret;
 
 	for (i = 0; i < pmem_ar_dev.elem_num; i++) {
-		if (p >= (void *)pmem_ar_dev.start_virt_addr[i] &&
-		    p + len < (void *)(pmem_ar_dev.start_virt_addr[i] +
+		if (p >= (void *)pmem_ar_dev.virt_addr[i] &&
+		    p + len < (void *)(pmem_ar_dev.virt_addr[i] +
 				       pmem_ar_dev.size_in_bytes[i])) {
 			ret = 0;
 			break;
@@ -195,8 +195,8 @@ int pmem_ar_addr_invaild(void *p)
 		return ret;
 
 	for (i = 0; i < pmem_ar_dev.elem_num; i++) {
-		if (p >= (void *)pmem_ar_dev.start_virt_addr[i] &&
-		    p < (void *)(pmem_ar_dev.start_virt_addr[i] +
+		if (p >= (void *)pmem_ar_dev.virt_addr[i] &&
+		    p < (void *)(pmem_ar_dev.virt_addr[i] +
 				 pmem_ar_dev.size_in_bytes[i])) {
 			ret = 0;
 			break;

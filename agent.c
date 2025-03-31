@@ -395,8 +395,7 @@ process_request:
 			do_write_request(request.mm, request.kaddr,
 					 request.uaddr, request.bytes,
 					 request.zero, request.flush_cache,
-					 request.notify_cnt,
-					 agent_cal_frag(socket));
+					 request.notify_cnt, 8);
 		} else {
 			nova_warn("Unknown request type: %d", request.type);
 		}
@@ -441,7 +440,7 @@ int nova_init_agents(int cpus, int sockets)
 
 	// get cpu topology
 	int **socket_cpu = cpu_topology();
-
+	
 	for (i = 0; i < sockets; i++) {
 		for (j = 0; j < nova_dele_thrds; j++) {
 			/* Use the first few cpus of each socket */

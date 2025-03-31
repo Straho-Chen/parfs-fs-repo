@@ -80,6 +80,15 @@ int nova_recv_request(nova_ring_buffer_t *ring,
 #endif
 }
 
+int nova_ring_empty(nova_ring_buffer_t *ring)
+{
+#if NOVA_SOLROS_RING_BUFFER
+	return solros_ring_empty(ring);
+#else
+	return nova_fifo_empty(ring);
+#endif
+}
+
 size_t nova_ring_len(nova_ring_buffer_t *ring)
 {
 #if NOVA_SOLROS_RING_BUFFER
@@ -94,7 +103,8 @@ int nova_filled_ring_num(int socket)
 	int i;
 	int count = 0;
 	for (i = 0; i < nova_dele_thrds; i++) {
-		if (nova_ring_len(nova_ring_buffer[socket][i]) > 0) {
+		if (!nova_ring_empty(nova_ring_buffer[socket][i]) ||
+		    nova_ring_buffer[socket][i]->writing) {
 			count++;
 		}
 	}

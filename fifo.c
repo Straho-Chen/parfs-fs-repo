@@ -49,6 +49,11 @@ out:
 	return ret;
 }
 
+int nova_fifo_empty(nova_ring_buffer_t *ring)
+{
+	return kfifo_is_empty(&ring->fifo);
+}
+
 size_t nova_fifo_len(nova_ring_buffer_t *ring)
 {
 	return kfifo_len(&ring->fifo);

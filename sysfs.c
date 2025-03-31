@@ -102,14 +102,14 @@ static int nova_seq_IO_show(struct seq_file *seq, void *v)
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = nova_get_free_list(sb, i);
 
-		alloc_log_count += free_list->alloc_log_count;
-		alloc_log_pages += free_list->alloc_log_pages;
-		alloc_data_count += free_list->alloc_data_count;
-		alloc_data_pages += free_list->alloc_data_pages;
-		free_log_count += free_list->free_log_count;
-		freed_log_pages += free_list->freed_log_pages;
-		free_data_count += free_list->free_data_count;
-		freed_data_pages += free_list->freed_data_pages;
+		alloc_log_count += free_list->meta_list.alloc_count;
+		alloc_log_pages += free_list->meta_list.alloc_pages;
+		alloc_data_count += free_list->data_list.alloc_count;
+		alloc_data_pages += free_list->data_list.alloc_pages;
+		free_log_count += free_list->meta_list.free_count;
+		freed_log_pages += free_list->meta_list.freed_pages;
+		free_data_count += free_list->data_list.free_count;
+		freed_data_pages += free_list->data_list.freed_pages;
 	}
 
 	seq_printf(seq,
@@ -225,43 +225,51 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 		seq_printf(
 			seq,
 			"Free list %d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
-			i, free_list->block_start, free_list->block_end,
-			free_list->block_end - free_list->block_start + 1,
-			free_list->num_free_blocks, free_list->num_blocknode);
+			i, free_list->data_list.block_start,
+			free_list->data_list.block_end,
+			free_list->data_list.block_end -
+				free_list->data_list.block_start + 1,
+			free_list->data_list.num_free_blocks,
+			free_list->data_list.num_blocknode);
 
-		if (free_list->first_node) {
+		if (free_list->data_list.first_node) {
 			seq_printf(seq, "First node %lu - %lu\n",
-				   free_list->first_node->range_low,
-				   free_list->first_node->range_high);
+				   free_list->data_list.first_node->range_low,
+				   free_list->data_list.first_node->range_high);
 		}
 
-		if (free_list->last_node) {
+		if (free_list->data_list.last_node) {
 			seq_printf(seq, "Last node %lu - %lu\n",
-				   free_list->last_node->range_low,
-				   free_list->last_node->range_high);
+				   free_list->data_list.last_node->range_low,
+				   free_list->data_list.last_node->range_high);
 		}
 
 		seq_printf(
 			seq,
 			"Free list %d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
-			i, free_list->csum_start, free_list->replica_csum_start,
-			free_list->num_csum_blocks, free_list->parity_start,
-			free_list->num_parity_blocks);
+			i, free_list->meta_list.csum_start,
+			free_list->meta_list.replica_csum_start,
+			free_list->meta_list.num_csum_blocks,
+			free_list->meta_list.parity_start,
+			free_list->meta_list.num_parity_blocks);
 
 		seq_printf(
 			seq,
 			"Free list %d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
-			i, free_list->alloc_log_count,
-			free_list->alloc_log_pages, free_list->alloc_data_count,
-			free_list->alloc_data_pages, free_list->free_log_count,
-			free_list->freed_log_pages, free_list->free_data_count,
-			free_list->freed_data_pages);
+			i, free_list->meta_list.alloc_count,
+			free_list->meta_list.alloc_pages,
+			free_list->data_list.alloc_count,
+			free_list->data_list.alloc_pages,
+			free_list->meta_list.free_count,
+			free_list->meta_list.freed_pages,
+			free_list->data_list.free_count,
+			free_list->data_list.freed_pages);
 
-		log_pages += free_list->alloc_log_pages;
-		log_pages -= free_list->freed_log_pages;
+		log_pages += free_list->meta_list.alloc_pages;
+		log_pages -= free_list->meta_list.freed_pages;
 
-		data_pages += free_list->alloc_data_pages;
-		data_pages -= free_list->freed_data_pages;
+		data_pages += free_list->data_list.alloc_pages;
+		data_pages -= free_list->data_list.freed_pages;
 	}
 
 	seq_printf(seq, "\nCurrently used pmem pages: log %lu, data %lu\n",

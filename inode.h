@@ -40,7 +40,7 @@ struct nova_inode {
 	__le32 i_uid; /* Owner Uid */
 	__le32 i_gid; /* Group Id */
 	__le32 i_generation; /* File version (for NFS) */
-	__le32 i_nsocket; /* next socket to locate data block */
+	__le32 pad;
 	__le64 nova_ino; /* nova inode number */
 
 	__le64 log_head; /* Log head pointer */
@@ -147,7 +147,7 @@ static inline struct nova_inode *nova_get_alter_inode(struct super_block *sb,
 	if (metadata_csum == 0)
 		return NULL;
 
-	addr = nova_get_virt_addr_from_offset(sb, sih->alter_pi_addr);
+	addr = nova_get_virt_addr_from_offset(sb, sih->alter_pi_addr, 1);
 	rc = memcpy_mcsafe(&fake_pi, addr, sizeof(struct nova_inode));
 	if (rc)
 		return NULL;
@@ -294,7 +294,7 @@ static inline struct inode_table *nova_get_inode_table(struct super_block *sb,
 		table_start = INODE_TABLE1_START;
 
 	return (struct inode_table *)((char *)nova_get_virt_addr_from_offset(
-					      sb, PAGE_SIZE * table_start) +
+					      sb, PAGE_SIZE * table_start, 1) +
 				      cpu * CACHELINE_SIZE);
 }
 
@@ -321,7 +321,7 @@ static inline u64 nova_get_alter_reserved_inode_addr(struct super_block *sb,
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 
-	return nova_get_addr_off(sbi, sbi->replica_reserved_inodes_addr) +
+	return nova_get_addr_off(sbi, sbi->replica_reserved_inodes_addr, 1) +
 	       inode_number * NOVA_INODE_SIZE;
 }
 
@@ -333,7 +333,7 @@ static inline struct nova_inode *nova_get_reserved_inode(struct super_block *sb,
 
 	addr = nova_get_reserved_inode_addr(sb, inode_number);
 
-	return (struct nova_inode *)(sbi->virt_addr + addr);
+	return (struct nova_inode *)(sbi->meta_start_virt + addr);
 }
 
 static inline struct nova_inode *
@@ -344,7 +344,7 @@ nova_get_alter_reserved_inode(struct super_block *sb, u64 inode_number)
 
 	addr = nova_get_alter_reserved_inode_addr(sb, inode_number);
 
-	return (struct nova_inode *)(sbi->virt_addr + addr);
+	return (struct nova_inode *)(sbi->meta_start_virt + addr);
 }
 
 /* If this is part of a read-modify-write of the inode metadata,
@@ -368,7 +368,7 @@ static inline struct nova_inode *nova_get_inode(struct super_block *sb,
 	void *addr;
 	int rc;
 
-	addr = nova_get_virt_addr_from_offset(sb, sih->pi_addr);
+	addr = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
 	rc = memcpy_mcsafe(&fake_pi, addr, sizeof(struct nova_inode));
 	if (rc)
 		return NULL;

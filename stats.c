@@ -229,14 +229,14 @@ static void nova_print_alloc_stats(struct super_block *sb)
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = nova_get_free_list(sb, i);
 
-		alloc_log_count += free_list->alloc_log_count;
-		alloc_log_pages += free_list->alloc_log_pages;
-		alloc_data_count += free_list->alloc_data_count;
-		alloc_data_pages += free_list->alloc_data_pages;
-		free_log_count += free_list->free_log_count;
-		freed_log_pages += free_list->freed_log_pages;
-		free_data_count += free_list->free_data_count;
-		freed_data_pages += free_list->freed_data_pages;
+		alloc_log_count += free_list->meta_list.alloc_count;
+		alloc_log_pages += free_list->meta_list.alloc_pages;
+		alloc_data_count += free_list->data_list.alloc_count;
+		alloc_data_pages += free_list->data_list.alloc_pages;
+		free_log_count += free_list->meta_list.free_count;
+		freed_log_pages += free_list->meta_list.freed_pages;
+		free_data_count += free_list->data_list.free_count;
+		freed_data_pages += free_list->data_list.freed_pages;
 	}
 
 	nova_info(
@@ -369,14 +369,14 @@ static void nova_clear_IO_stats(struct super_block *sb)
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = nova_get_free_list(sb, i);
 
-		free_list->alloc_log_count = 0;
-		free_list->alloc_log_pages = 0;
-		free_list->alloc_data_count = 0;
-		free_list->alloc_data_pages = 0;
-		free_list->free_log_count = 0;
-		free_list->freed_log_pages = 0;
-		free_list->free_data_count = 0;
-		free_list->freed_data_pages = 0;
+		free_list->meta_list.alloc_count = 0;
+		free_list->meta_list.alloc_pages = 0;
+		free_list->data_list.alloc_count = 0;
+		free_list->data_list.alloc_pages = 0;
+		free_list->meta_list.free_count = 0;
+		free_list->meta_list.freed_pages = 0;
+		free_list->data_list.free_count = 0;
+		free_list->data_list.freed_pages = 0;
 	}
 }
 
@@ -388,8 +388,6 @@ void nova_clear_stats(struct super_block *sb)
 
 void nova_print_inode(struct nova_inode *pi)
 {
-	nova_dbg("%s: NOVA inode %llu, nsocket: %d\n", __func__, pi->nova_ino,
-		 pi->i_nsocket);
 	nova_dbg("valid %u, deleted %u, blk type %u, flags %u\n", pi->valid,
 		 pi->deleted, pi->i_blk_type, pi->i_flags);
 	nova_dbg("size %llu, ctime %u, mtime %u, atime %u\n", pi->i_size,
@@ -475,7 +473,7 @@ u64 nova_print_log_entry(struct super_block *sb, u64 curr)
 	size_t size;
 	u8 type;
 
-	addr = (void *)nova_get_virt_addr_from_offset(sb, curr);
+	addr = (void *)nova_get_virt_addr_from_offset(sb, curr, 1);
 	type = nova_get_entry_type(addr);
 	switch (type) {
 	case SET_ATTR:
@@ -533,7 +531,7 @@ void nova_print_curr_log_page(struct super_block *sb, u64 curr)
 	while (start < end && start != 0)
 		start = nova_print_log_entry(sb, start);
 
-	tail = nova_get_virt_addr_from_offset(sb, end);
+	tail = nova_get_virt_addr_from_offset(sb, end, 1);
 	nova_dbg(
 		"Page tail. curr 0x%llx, next page 0x%llx, %u entries, %u invalid\n",
 		start, tail->next_page, tail->num_entries,
@@ -560,7 +558,7 @@ void nova_print_nova_log(struct super_block *sb,
 	while (curr != sih->log_tail) {
 		if ((curr & (PAGE_SIZE - 1)) == LOG_BLOCK_TAIL) {
 			struct nova_inode_page_tail *tail =
-				nova_get_virt_addr_from_offset(sb, curr);
+				nova_get_virt_addr_from_offset(sb, curr, 1);
 			nova_dbg(
 				"Log tail, curr 0x%llx, next page 0x%llx, %u entries, %u invalid\n",
 				curr, tail->next_page, tail->num_entries,
@@ -598,11 +596,11 @@ int nova_get_nova_log_pages(struct super_block *sb,
 	curr = pi->log_head;
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr);
+			sb, curr, 1);
 	while ((next = curr_page->page_tail.next_page) != 0) {
 		curr = next;
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr);
+			nova_get_virt_addr_from_offset(sb, curr, 1);
 		count++;
 	}
 
@@ -627,7 +625,7 @@ void nova_print_nova_log_pages(struct super_block *sb,
 		 sih->log_tail);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr);
+			sb, curr, 1);
 	while ((next = curr_page->page_tail.next_page) != 0) {
 		nova_dbg(
 			"Current page 0x%llx, next page 0x%llx, %u entries, %u invalid\n",
@@ -638,7 +636,7 @@ void nova_print_nova_log_pages(struct super_block *sb,
 			used = count;
 		curr = next;
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr);
+			nova_get_virt_addr_from_offset(sb, curr, 1);
 		count++;
 	}
 	if (sih->log_tail >> PAGE_SHIFT == curr >> PAGE_SHIFT)
@@ -719,22 +717,30 @@ void nova_print_free_lists(struct super_block *sb)
 		free_list = nova_get_free_list(sb, i);
 		nova_dbg(
 			"Free list cpu%d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
-			i, free_list->block_start, free_list->block_end,
-			free_list->block_end - free_list->block_start + 1,
-			free_list->num_free_blocks, free_list->num_blocknode);
+			i, free_list->data_list.block_start,
+			free_list->data_list.block_end,
+			free_list->data_list.block_end -
+				free_list->data_list.block_start + 1,
+			free_list->data_list.num_free_blocks,
+			free_list->data_list.num_blocknode);
 
 		nova_dbg(
 			"Free list cpu%d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
-			i, free_list->csum_start, free_list->replica_csum_start,
-			free_list->num_csum_blocks, free_list->parity_start,
-			free_list->num_parity_blocks);
+			i, free_list->meta_list.csum_start,
+			free_list->meta_list.replica_csum_start,
+			free_list->meta_list.num_csum_blocks,
+			free_list->meta_list.parity_start,
+			free_list->meta_list.num_parity_blocks);
 
 		nova_dbg(
 			"Free list cpu%d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
-			i, free_list->alloc_log_count,
-			free_list->alloc_log_pages, free_list->alloc_data_count,
-			free_list->alloc_data_pages, free_list->free_log_count,
-			free_list->freed_log_pages, free_list->free_data_count,
-			free_list->freed_data_pages);
+			i, free_list->meta_list.alloc_count,
+			free_list->meta_list.alloc_pages,
+			free_list->data_list.alloc_count,
+			free_list->data_list.alloc_pages,
+			free_list->meta_list.free_count,
+			free_list->meta_list.freed_pages,
+			free_list->data_list.free_count,
+			free_list->data_list.freed_pages);
 	}
 }

@@ -245,7 +245,12 @@ static inline void nova_flush_buffer(void *buf, uint32_t len, bool fence)
 
 /* =============== Integrity and Recovery Parameters =============== */
 #define NOVA_META_CSUM_LEN (4)
+
+#if NOVA_XXHASH_CSUM
+#define NOVA_DATA_CSUM_LEN (8)
+#else
 #define NOVA_DATA_CSUM_LEN (4)
+#endif
 
 /* This is to set the initial value of checksum state register.
  * For CRC32C this should not matter and can be set to any value.

@@ -53,17 +53,17 @@ struct nova_notifyer {
 unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 				     struct mm_struct *mm, unsigned long uaddr,
 				     unsigned long kaddr, unsigned long bytes,
-				     int socket, int zero, long *issued_cnt,
+				     int meta, int socket, int zero,
+				     long *issued_cnt,
 				     struct nova_notifyer *completed_cnt,
 				     int wait_hint);
 
-unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
-				      struct mm_struct *mm, unsigned long uaddr,
-				      unsigned long kaddr, unsigned long bytes,
-				      int socket, int zero, int flush_cache,
-				      int sfence, long *issued_cnt,
-				      struct nova_notifyer *completed_cnt,
-				      int wait_hint);
+unsigned int
+nova_do_write_delegation(struct nova_sb_info *sbi, struct mm_struct *mm,
+			 unsigned long uaddr, unsigned long kaddr,
+			 unsigned long bytes, int meta, int socket, int zero,
+			 int flush_cache, int sfence, long *issued_cnt,
+			 struct nova_notifyer *completed_cnt, int wait_hint);
 
 void nova_complete_delegation(long *issued_cnt,
 			      struct nova_notifyer *completed_cnt);

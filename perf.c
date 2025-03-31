@@ -341,8 +341,8 @@ static void *nova_alloc_pmem_pool(struct super_block *sb,
 		return NULL;
 	}
 
-	blockoff = nova_get_block_off(sb, *blocknr, blocktype);
-	pool = nova_get_virt_addr_from_offset(sb, blockoff);
+	blockoff = nova_get_block_off(sb, *blocknr, blocktype, 0);
+	pool = nova_get_virt_addr_from_offset(sb, blockoff, 0);
 
 	return pool;
 }
