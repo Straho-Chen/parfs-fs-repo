@@ -89,12 +89,7 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 
 	NOVA_START_TIMING(send_request_r_t, send_request_time);
 	do {
-		if (meta) {
-			thread = 0;
-		} else {
-			thread = nova_choose_rings();
-			thread = thread ? thread : 1;
-		}
+		thread = nova_choose_rings();
 		NOVA_START_TIMING(ring_buffer_enque_r_t,
 				  ring_buffer_enque_time);
 		ret = nova_send_request(nova_ring_buffer[socket][thread],
@@ -195,12 +190,7 @@ nova_do_write_delegation(struct nova_sb_info *sbi, struct mm_struct *mm,
 
 	NOVA_START_TIMING(send_request_w_t, send_request_time);
 	do {
-		if (meta) {
-			thread = 0;
-		} else {
-			thread = nova_choose_rings();
-			thread = thread ? thread : 1;
-		}
+		thread = nova_choose_rings();
 		NOVA_START_TIMING(ring_buffer_enque_w_t,
 				  ring_buffer_enque_time);
 		ret = nova_send_request(nova_ring_buffer[socket][thread],

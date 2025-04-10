@@ -187,11 +187,11 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	start_blk = pos >> data_bits;
 	end_blk = start_blk + num_blocks - 1;
 
-	nova_dbg_verbose("%s: %lu blocks\n", __func__, num_blocks);
+	nova_dbg_verbose("%s: %#lx blocks\n", __func__, num_blocks);
 	/* We avoid zeroing the alloc'd range, which is going to be overwritten
    * by this system call anyway
    */
-	nova_dbg_verbose("%s: start offset %lu start blk %lu\n", __func__,
+	nova_dbg_verbose("%s: start offset %#lx start blk %#lx\n", __func__,
 			 offset, start_blk);
 	if (offset != 0) {
 		*head = 1;
@@ -203,9 +203,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 			nova_get_block_off(sb, blocknr, sih->i_blk_type, 0), 0);
 		socket = nova_block_to_socket(NOVA_SB(sb), blocknr,
 					      sih->i_blk_type, 0);
-		if (sbi->meta_data_mix && socket == 2) {
-			socket = 1;
-		}
 		ret = nova_handle_partial_block(
 			sb, sih, entry, start_blk, 1, offset, kmem,
 			ubuf_copy + ubuf_off, data_block_size - offset, socket,
@@ -215,7 +212,7 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	}
 
 	eblk_offset = (pos + count) & (data_block_size - 1);
-	nova_dbg_verbose("%s: end offset %lu, end blk %lu\n", __func__,
+	nova_dbg_verbose("%s: end offset %#lx, end blk %#lx\n", __func__,
 			 eblk_offset, end_blk);
 	if (eblk_offset != 0) {
 		*tail = 1;
@@ -229,9 +226,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		ubuf_off = count - eblk_offset;
 		socket = nova_block_to_socket(NOVA_SB(sb), blocknr,
 					      sih->i_blk_type, 0);
-		if (sbi->meta_data_mix && socket == 2) {
-			socket = 1;
-		}
 		ret = nova_handle_partial_block(sb, sih, entry, end_blk, 0, 0,
 						kmem, ubuf_copy + ubuf_off,
 						eblk_offset, socket, issued_cnt,
@@ -754,7 +748,7 @@ unsigned long nova_check_existing_entry(
 			if (next_pgoff <= start_blk) {
 				nova_err(
 					sb,
-					"iblock %lu, entry pgoff %lu, num pages %lu\n",
+					"iblock %#lx, entry pgoff %#lx, num pages %#lx\n",
 					start_blk, next_pgoff,
 					entry->num_pages);
 				nova_print_inode_log(sb, inode);
@@ -927,7 +921,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	epoch_id = nova_get_epoch_id(sb);
 
 	nova_dbg_verbose(
-		"%s: epoch_id %llu, inode %lu, offset %lld, count %lu, alloc blocks: %ld\n",
+		"%s: epoch_id %llu, inode %lu, offset %lld, count %#lx, alloc blocks: %ld\n",
 		__func__, epoch_id, inode->i_ino, pos, count, num_blocks);
 	update.tail = sih->log_tail;
 	update.alter_tail = sih->alter_log_tail;
@@ -1013,9 +1007,6 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				0);
 			socket = nova_block_to_socket(sbi, blocknr_loop,
 						      sih->i_blk_type, 0);
-			if (sbi->meta_data_mix && socket == 2) {
-				socket = 1;
-			}
 
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			copied += do_nova_nvmm_write(
@@ -1100,7 +1091,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 							&entry_info);
 		}
 
-		nova_dbg_verbose("Write: %p, %lu\n", kmem, copied);
+		nova_dbg_verbose("Write: %p, %#lx\n", kmem, copied);
 		if (copied > 0) {
 			status = copied;
 			written += copied;
@@ -1110,7 +1101,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			num_blocks -= allocated;
 		}
 		if (unlikely(copied != bytes)) {
-			nova_dbg("%s ERROR!: %p, bytes %lu, copied %lu\n",
+			nova_dbg("%s ERROR!: %p, bytes %#lx, copied %#lx\n",
 				 __func__, kmem, bytes, copied);
 			if (status >= 0)
 				status = -EFAULT;
@@ -1152,7 +1143,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 	ret = written;
 	NOVA_STATS_ADD(inplace_write_breaks, step);
-	nova_dbg_verbose("blocks: %llu, %lu\n", inode->i_blocks, sih->i_blocks);
+	nova_dbg_verbose("blocks: %llu, %#lx\n", inode->i_blocks,
+			 sih->i_blocks);
 
 	*ppos = pos;
 	if (pos > inode->i_size) {
@@ -1273,7 +1265,7 @@ static int nova_dax_get_blocks(struct inode *inode, sector_t iblock,
 
 	NOVA_START_TIMING(dax_get_block_t, get_block_time);
 
-	nova_dbg_verbose("%s: pgoff %lu, num %lu, create %d\n", __func__,
+	nova_dbg_verbose("%s: pgoff %#lx, num %#lx, create %d\n", __func__,
 			 iblock, max_blocks, create);
 
 	epoch_id = nova_get_epoch_id(sb);
@@ -1291,7 +1283,7 @@ again:
 	if (entry) {
 		if (create == 0 || inplace) {
 			nvmm = get_nvmm(sb, sih, entryc, iblock);
-			nova_dbg_verbose("%s: found pgoff %lu, block %lu\n",
+			nova_dbg_verbose("%s: found pgoff %#lx, block %#lx\n",
 					 __func__, iblock, nvmm);
 			goto out;
 		}
@@ -1455,7 +1447,7 @@ static vm_fault_t nova_dax_huge_fault(struct vm_fault *vmf, unsigned int order)
 
 	// NOVA_START_TIMING(pmd_fault_t, fault_time);
 
-	nova_dbg_verbose("%s: inode %lu, pgoff %lu\n", __func__, inode->i_ino,
+	nova_dbg_verbose("%s: inode %lu, pgoff %#lx\n", __func__, inode->i_ino,
 			 vmf->pgoff);
 
 	if (vmf->flags & FAULT_FLAG_WRITE)
@@ -1472,7 +1464,7 @@ static vm_fault_t nova_dax_fault(struct vm_fault *vmf)
 	struct address_space *mapping = vmf->vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
 
-	nova_dbg_verbose("%s: inode %lu, pgoff %lu, flags 0x%x\n", __func__,
+	nova_dbg_verbose("%s: inode %lu, pgoff %#lx, flags 0x%x\n", __func__,
 			 inode->i_ino, vmf->pgoff, vmf->flags);
 
 	return nova_dax_huge_fault(vmf, 0);
@@ -1483,7 +1475,7 @@ static vm_fault_t nova_dax_pfn_mkwrite(struct vm_fault *vmf)
 	struct address_space *mapping = vmf->vma->vm_file->f_mapping;
 	struct inode *inode = mapping->host;
 
-	nova_dbg_verbose("%s: inode %lu, pgoff %lu, flags 0x%x\n", __func__,
+	nova_dbg_verbose("%s: inode %lu, pgoff %#lx, flags 0x%x\n", __func__,
 			 inode->i_ino, vmf->pgoff, vmf->flags);
 
 	return nova_dax_huge_fault(vmf, 0);
@@ -1506,20 +1498,17 @@ static int nova_append_write_mmap_to_log(struct super_block *sb,
 {
 	struct vm_area_struct *vma = item->vma;
 	struct nova_inode *pi;
-	struct nova_inode pic;
 	struct nova_mmap_entry data;
 	struct nova_inode_update update;
 	unsigned long num_pages;
 	u64 epoch_id;
 	int ret;
-	unsigned long irq_flags = 0;
 
 	/* Only for csum and parity update */
 	if (data_csum == 0 && data_parity == 0)
 		return 0;
 
 	pi = nova_get_inode(sb, inode);
-	memcpy(&pic, pi, sizeof(struct nova_inode));
 	epoch_id = nova_get_epoch_id(sb);
 	update.tail = update.alter_tail = 0;
 
@@ -1535,15 +1524,12 @@ static int nova_append_write_mmap_to_log(struct super_block *sb,
 		"%s : Appending mmap log entry for inode %lu, pgoff %llu, %llu pages\n",
 		__func__, inode->i_ino, data.pgoff, data.num_pages);
 
-	ret = nova_append_mmap_entry(sb, &pic, inode, &data, &update, item);
+	ret = nova_append_mmap_entry(sb, pi, inode, &data, &update, item);
 	if (ret) {
 		nova_dbg("%s: append write mmap entry failure\n", __func__);
 		goto out;
 	}
 
-	nova_memunlock_inode(sb, pi, &irq_flags);
-	nova_update_inode(sb, inode, pi, &pic, &update, 1);
-	nova_memlock_inode(sb, pi, &irq_flags);
 out:
 	return ret;
 }
@@ -1578,7 +1564,7 @@ int nova_insert_write_vma(struct vm_area_struct *vma)
 	item->vma = vma;
 
 	nova_dbg_verbose(
-		"Inode %lu insert vma %p, start 0x%lx, end 0x%lx, pgoff %lu\n",
+		"Inode %lu insert vma %p, start 0x%lx, end 0x%lx, pgoff %#lx\n",
 		inode->i_ino, vma, vma->vm_start, vma->vm_end, vma->vm_pgoff);
 
 	inode_lock(inode);
@@ -1673,7 +1659,7 @@ static int nova_remove_write_vma(struct vm_area_struct *vma)
 
 	if (found) {
 		nova_dbg_verbose(
-			"Inode %lu remove vma %p, start 0x%lx, end 0x%lx, pgoff %lu\n",
+			"Inode %lu remove vma %p, start 0x%lx, end 0x%lx, pgoff %#lx\n",
 			inode->i_ino, curr->vma, curr->vma->vm_start,
 			curr->vma->vm_end, curr->vma->vm_pgoff);
 		nova_free_vma_item(sb, curr);
@@ -1717,7 +1703,7 @@ static void nova_vma_open(struct vm_area_struct *vma)
 
 	nova_dbg_mmap4k(
 		"[%s:%d] inode %lu, MMAP 4KPAGE vm_start(0x%lx), vm_end(0x%lx), vm pgoff "
-		"%lu, %lu blocks, vm_flags(0x%lx), vm_page_prot(0x%lx)\n",
+		"%#lx, %#lx blocks, vm_flags(0x%lx), vm_page_prot(0x%lx)\n",
 		__func__, __LINE__, inode->i_ino, vma->vm_start, vma->vm_end,
 		vma->vm_pgoff, (vma->vm_end - vma->vm_start) >> PAGE_SHIFT,
 		vma->vm_flags, pgprot_val(vma->vm_page_prot));

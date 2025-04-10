@@ -397,7 +397,7 @@ static void nova_write_snapshot_list_entry(struct super_block *sb,
 					   u64 curr_p, void *entry, size_t size)
 {
 	if (is_last_entry(curr_p, size)) {
-		nova_err(sb, "%s: write to page end? curr 0x%llx, size %lu\n",
+		nova_err(sb, "%s: write to page end? curr 0x%llx, size %#lx\n",
 			 __func__, curr_p, size);
 		return;
 	}
@@ -654,7 +654,7 @@ static int nova_copy_snapshot_list_to_dram(struct super_block *sb,
 				    LOG_BLOCK_TAIL);
 
 		if (ret < 0) {
-			nova_dbg("%s: Copy nvmm page %lu failed\n", __func__,
+			nova_dbg("%s: Copy nvmm page %#lx failed\n", __func__,
 				 i);
 			continue;
 		}
@@ -891,11 +891,9 @@ static int nova_append_snapshot_info_log(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_info *si = sbi->snapshot_si;
 	struct nova_inode *pi = nova_get_reserved_inode(sb, NOVA_SNAPSHOT_INO);
-	struct nova_inode pic;
 	struct nova_inode_update update;
 	struct nova_snapshot_info_entry entry_info;
 	int ret;
-	unsigned long irq_flags = 0;
 
 	entry_info.type = SNAPSHOT_INFO;
 	entry_info.deleted = 0;
@@ -904,17 +902,12 @@ static int nova_append_snapshot_info_log(struct super_block *sb,
 	entry_info.timestamp = timestamp;
 
 	update.tail = update.alter_tail = 0;
-	memcpy(&pic, pi, sizeof(struct nova_inode));
-	ret = nova_append_snapshot_info_entry(sb, &pic, si, info, &entry_info,
+	ret = nova_append_snapshot_info_entry(sb, pi, si, info, &entry_info,
 					      &update);
 	if (ret) {
 		nova_dbg("%s: append snapshot info entry failure\n", __func__);
 		return ret;
 	}
-
-	nova_memunlock_inode(sb, pi, &irq_flags);
-	nova_update_inode(sb, &si->vfs_inode, pi, &pic, &update, 1);
-	nova_memlock_inode(sb, pi, &irq_flags);
 
 	return 0;
 }

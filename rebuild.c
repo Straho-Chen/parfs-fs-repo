@@ -186,7 +186,7 @@ static int nova_reset_csum_parity_page(struct super_block *sb,
 				       struct nova_file_write_entry *entry,
 				       unsigned long pgoff, int zero)
 {
-	nova_dbg_verbose("%s: update page off %lu\n", __func__, pgoff);
+	nova_dbg_verbose("%s: update page off %#lx\n", __func__, pgoff);
 
 	if (data_csum)
 		nova_update_pgoff_csum(sb, sih, entry, pgoff, zero);
@@ -293,7 +293,7 @@ int nova_reset_mapping_csum_parity(struct super_block *sb, struct inode *inode,
 		return 0;
 
 	NOVA_START_TIMING(reset_mapping_t, reset_time);
-	nova_dbg_verbose("%s: pgoff %lu to %lu\n", __func__, start_pgoff,
+	nova_dbg_verbose("%s: pgoff %#lx to %#lx\n", __func__, start_pgoff,
 			 end_pgoff);
 
 	while (!done) {
@@ -326,7 +326,7 @@ int nova_reset_mapping_csum_parity(struct super_block *sb, struct inode *inode,
 
 	if (count)
 		nova_dbg_verbose(
-			"%s: inode %lu, reset %d pages, start pgoff %lu\n",
+			"%s: inode %lu, reset %d pages, start pgoff %#lx\n",
 			__func__, sih->ino, count, start);
 
 	NOVA_END_TIMING(reset_mapping_t, reset_time);
@@ -352,7 +352,7 @@ int nova_reset_vma_csum_parity(struct super_block *sb, struct vma_item *item)
 	start_index = vma->vm_pgoff;
 	end_index = vma->vm_pgoff + num_pages;
 
-	nova_dbg_verbose("%s: inode %lu, pgoff %lu - %lu\n", __func__,
+	nova_dbg_verbose("%s: inode %lu, pgoff %#lx - %#lx\n", __func__,
 			 inode->i_ino, start_index, end_index);
 
 	ret = nova_reset_mapping_csum_parity(sb, inode, mapping, start_index,

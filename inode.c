@@ -218,8 +218,8 @@ int nova_get_inode_address(struct super_block *sb, u64 ino, int version,
 		if (curr == 0)
 			return -EINVAL;
 
-		curr_addr =
-			(unsigned long)nova_get_virt_addr_from_offset(sb, curr, 1);
+		curr_addr = (unsigned long)nova_get_virt_addr_from_offset(
+			sb, curr, 1);
 		/* Next page pointer in the last 8 bytes of the superpage */
 		curr_addr += nova_inode_blk_size(&sih) - 8;
 		curr = *(u64 *)(curr_addr);
@@ -346,7 +346,7 @@ int nova_delete_file_tree(struct super_block *sb,
 	}
 
 	nova_dbg_verbose(
-		"Inode %lu: delete file tree from pgoff %lu to %lu, %d blocks freed\n",
+		"Inode %lu: delete file tree from pgoff %#lx to %#lx, %d blocks freed\n",
 		sih->ino, start_blocknr, last_blocknr, freed);
 
 	NOVA_END_TIMING(delete_file_tree_t, delete_time);
@@ -652,7 +652,7 @@ static int nova_alloc_unused_inode(struct super_block *sb, int cpuid,
 		i->range_high = new_ino;
 		nova_update_range_node_checksum(i);
 	} else {
-		nova_dbg("%s: ERROR: new ino %lu, next low %lu\n", __func__,
+		nova_dbg("%s: ERROR: new ino %lu, next low %#lx\n", __func__,
 			 new_ino, next_range_low);
 		return -ENOSPC;
 	}
@@ -676,7 +676,7 @@ static int nova_free_inuse_inode(struct super_block *sb, unsigned long ino)
 	unsigned long internal_ino = ino / sbi->cpus;
 	int ret = 0;
 
-	nova_dbg_verbose("Free inuse ino: %lu\n", ino);
+	nova_dbg_verbose("Free inuse ino: %#lx\n", ino);
 	inode_map = &sbi->inode_maps[cpuid];
 
 	mutex_lock(&inode_map->inode_table_mutex);
@@ -732,7 +732,7 @@ static int nova_free_inuse_inode(struct super_block *sb, unsigned long ino)
 
 err:
 	nova_error_mng(sb, "Unable to free inode %lu\n", ino);
-	nova_error_mng(sb, "Found inuse block %lu - %lu\n", i->range_low,
+	nova_error_mng(sb, "Found inuse block %#lx - %#lx\n", i->range_low,
 		       i->range_high);
 	mutex_unlock(&inode_map->inode_table_mutex);
 	return ret;
@@ -931,7 +931,7 @@ void nova_evict_inode(struct inode *inode)
 			inode->i_size, sih->pi_addr, sih->log_head,
 			sih->log_tail, pi->i_mode);
 		nova_dbg(
-			"sih: ino %lu, inode size %lu, mode %u, inode mode %u\n",
+			"sih: ino %lu, inode size %#lx, mode %u, inode mode %u\n",
 			sih->ino, sih->i_size, sih->i_mode, inode->i_mode);
 		nova_print_inode_log(sb, inode);
 	}
@@ -943,7 +943,7 @@ void nova_evict_inode(struct inode *inode)
 			goto out;
 	}
 
-	nova_dbg_verbose("%s: %lu\n", __func__, inode->i_ino);
+	nova_dbg_verbose("%s: %#lx\n", __func__, inode->i_ino);
 	if (!inode->i_nlink && !is_bad_inode(inode)) {
 		if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
 			goto out;
@@ -962,7 +962,7 @@ void nova_evict_inode(struct inode *inode)
 	}
 out:
 	if (destroy == 0) {
-		nova_dbg_verbose("%s: destroying %lu\n", __func__,
+		nova_dbg_verbose("%s: destroying %#lx\n", __func__,
 				 inode->i_ino);
 		nova_free_dram_resource(sb, sih);
 	}
@@ -1004,7 +1004,8 @@ int nova_delete_dead_inode(struct super_block *sb, u64 ino)
 	if (err)
 		return err;
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr, 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
+								 1);
 	sih = &si.header;
 
 	nova_dbg_verbose(
@@ -1102,7 +1103,8 @@ struct inode *nova_new_vfs_inode(struct mnt_idmap *idmap,
 			goto fail1;
 	}
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr, 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
+								 1);
 	nova_dbg_verbose("%s: allocating inode %llu @ 0x%llx\n", __func__, ino,
 			 pi_addr);
 

@@ -142,10 +142,10 @@ struct nova_sb_info {
 
 	struct mutex s_lock; /* protects the SB's buffer-head */
 
-	int cpus, data_sockets, meta_sockets;
-	int device_num;
-	int meta_head_socket, data_head_socket;
-	int delegation_ready, meta_data_mix;
+	int cpus, sockets;
+	int meta_head_nvm_idx, data_head_nvm_idx;
+	int meta_nvm_num, data_nvm_num;
+	int delegation_ready;
 	struct nova_device_info block_info[PMEM_AR_MAX_DEVICE];
 	
 	struct proc_dir_entry *s_proc;

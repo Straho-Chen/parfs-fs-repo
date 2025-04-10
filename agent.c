@@ -279,12 +279,23 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 #else
 
+	// for (i = 0; i < frag; i++) {
+	// 	if (memcpy_to_pmem_avx_nocache(
+	// 		    (void *)(kaddr + i * bytes / frag),
+	// 		    (void *)(uaddr + i * bytes / frag), bytes / frag)) {
+	// 		nova_warn(
+	// 			"memcpy_to_pmem_avx_nocache failed to copy all\n");
+	// 		goto out;
+	// 	}
+	// }
+
+	// TODO: particial copy may not align to 64 bytes
 	for (i = 0; i < frag; i++) {
-		if (memcpy_to_pmem_avx_nocache(
-			    (void *)(kaddr + i * bytes / frag),
-			    (void *)(uaddr + i * bytes / frag), bytes / frag)) {
+		if (memcpy_to_pmem_nocache((void *)(kaddr + i * bytes / frag),
+					   (void *)(uaddr + i * bytes / frag),
+					   bytes / frag)) {
 			nova_warn(
-				"memcpy_to_pmem_avx_nocache failed to copy all\n");
+				"memcpy_to_pmem_nocache failed to copy all\n");
 			goto out;
 		}
 	}
@@ -440,7 +451,7 @@ int nova_init_agents(int cpus, int sockets)
 
 	// get cpu topology
 	int **socket_cpu = cpu_topology();
-	
+
 	for (i = 0; i < sockets; i++) {
 		for (j = 0; j < nova_dele_thrds; j++) {
 			/* Use the first few cpus of each socket */

@@ -81,7 +81,7 @@ static int nova_update_dax_mapping(struct super_block *sb,
 			/* 9 = sector shift (3) + RADIX_DAX_SHIFT (6) */
 			new_value = (blocknr << 9) | (value & 0xff);
 			nova_dbg_verbose(
-				"%s: pgoff %lu, entry 0x%lx, new 0x%lx\n",
+				"%s: pgoff %#lx, entry 0x%lx, new 0x%lx\n",
 				__func__, curr_pgoff, value, new_value);
 			radix_tree_replace_slot(&sih->tree, pentry,
 						(void *)new_value);
@@ -237,7 +237,7 @@ static int nova_get_dax_cow_range(struct super_block *sb,
 	*num_blocks = (base > vma_blocks - start_pgoff) ?
 			      vma_blocks - start_pgoff :
 			      base;
-	nova_dbg_verbose("%s: start block %lu, %d blocks\n", __func__,
+	nova_dbg_verbose("%s: start block %#lx, %d blocks\n", __func__,
 			 *start_blk, *num_blocks);
 	return 0;
 }
@@ -300,7 +300,7 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 	pi = nova_get_inode(sb, inode);
 	memcpy(&pic, pi, sizeof(struct nova_inode));
 
-	nova_dbg_verbose("%s: inode %lu, start pgoff %lu, end pgoff %lu\n",
+	nova_dbg_verbose("%s: inode %lu, start pgoff %#lx, end pgoff %#lx\n",
 			 __func__, inode->i_ino, start_blk, end_blk);
 
 	time = current_time(inode).tv_sec;
@@ -314,7 +314,7 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 	while (start_blk < end_blk) {
 		entry = nova_get_write_entry(sb, sih, start_blk);
 		if (!entry) {
-			nova_dbg_verbose("%s: Found hole: pgoff %lu\n",
+			nova_dbg_verbose("%s: Found hole: pgoff %#lx\n",
 					 __func__, start_blk);
 
 			/* Jump the hole */
@@ -345,7 +345,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 		from_blocknr = get_nvmm(sb, sih, entryc, start_blk);
 		from_blockoff =
 			nova_get_block_off(sb, from_blocknr, pi->i_blk_type, 0);
-		from_kmem = nova_get_virt_addr_from_offset(sb, from_blockoff, 0);
+		from_kmem =
+			nova_get_virt_addr_from_offset(sb, from_blockoff, 0);
 
 		if (entryc->reassigned == 0)
 			avail_blocks =
@@ -360,7 +361,7 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 						 avail_blocks, ALLOC_NO_INIT,
 						 ANY_CPU, ALLOC_FROM_HEAD);
 
-		nova_dbg_verbose("%s: alloc %d blocks @ %lu\n", __func__,
+		nova_dbg_verbose("%s: alloc %d blocks @ %#lx\n", __func__,
 				 allocated, blocknr);
 
 		if (allocated <= 0) {
@@ -370,7 +371,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 			goto out;
 		}
 
-		to_blockoff = nova_get_block_off(sb, blocknr, pi->i_blk_type, 0);
+		to_blockoff =
+			nova_get_block_off(sb, blocknr, pi->i_blk_type, 0);
 		to_kmem = nova_get_virt_addr_from_offset(sb, to_blockoff, 0);
 		entry_pgoff = start_blk;
 
@@ -389,8 +391,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 		if (copied == bytes) {
 			start_blk += copy_blocks;
 		} else {
-			nova_dbg("%s ERROR!: bytes %lu, copied %lu\n", __func__,
-				 bytes, copied);
+			nova_dbg("%s ERROR!: bytes %#lx, copied %#lx\n",
+				 __func__, bytes, copied);
 			ret = -EFAULT;
 			goto out;
 		}

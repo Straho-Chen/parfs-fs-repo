@@ -240,7 +240,7 @@ static void nova_print_alloc_stats(struct super_block *sb)
 	}
 
 	nova_info(
-		"alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
+		"alloc log count %#lx, allocated log pages %#lx, alloc data count %#lx, allocated data pages %#lx, free log count %#lx, freed log pages %#lx, free data count %#lx, freed data pages %#lx\n",
 		alloc_log_count, alloc_log_pages, alloc_data_count,
 		alloc_data_pages, free_log_count, freed_log_pages,
 		free_data_count, freed_data_pages);
@@ -642,7 +642,7 @@ void nova_print_nova_log_pages(struct super_block *sb,
 	if (sih->log_tail >> PAGE_SHIFT == curr >> PAGE_SHIFT)
 		used = count;
 	nova_dbg(
-		"Pi %lu: log used %d pages, has %d pages, si reports %lu pages\n",
+		"Pi %lu: log used %d pages, has %d pages, si reports %#lx pages\n",
 		sih->ino, used, count, sih->log_pages);
 }
 
@@ -716,7 +716,7 @@ void nova_print_free_lists(struct super_block *sb)
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = nova_get_free_list(sb, i);
 		nova_dbg(
-			"Free list cpu%d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
+			"Free list cpu%d: block start %#lx, block end %#lx, num_blocks %#lx, num_free_blocks %#lx, blocknode %#lx\n",
 			i, free_list->data_list.block_start,
 			free_list->data_list.block_end,
 			free_list->data_list.block_end -
@@ -725,7 +725,7 @@ void nova_print_free_lists(struct super_block *sb)
 			free_list->data_list.num_blocknode);
 
 		nova_dbg(
-			"Free list cpu%d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
+			"Free list cpu%d: csum start %#lx, replica csum start %#lx, csum blocks %#lx, parity start %#lx, parity blocks %#lx\n",
 			i, free_list->meta_list.csum_start,
 			free_list->meta_list.replica_csum_start,
 			free_list->meta_list.num_csum_blocks,
@@ -733,7 +733,7 @@ void nova_print_free_lists(struct super_block *sb)
 			free_list->meta_list.num_parity_blocks);
 
 		nova_dbg(
-			"Free list cpu%d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
+			"Free list cpu%d: alloc log count %#lx, allocated log pages %#lx, alloc data count %#lx, allocated data pages %#lx, free log count %#lx, freed log pages %#lx, free data count %#lx, freed data pages %#lx\n",
 			i, free_list->meta_list.alloc_count,
 			free_list->meta_list.alloc_pages,
 			free_list->data_list.alloc_count,

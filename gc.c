@@ -193,8 +193,8 @@ static int nova_gc_assign_dentry(struct super_block *sb,
 	int ret = 0;
 
 	hash = BKDRHash(old_dentry->name, old_dentry->name_len);
-	nova_dbg_verbose("%s: assign %s hash %lu\n", __func__, old_dentry->name,
-			 hash);
+	nova_dbg_verbose("%s: assign %s hash %#lx\n", __func__,
+			 old_dentry->name, hash);
 
 	/* FIXME: hash collision ignored here */
 	found = nova_find_range_node(&sih->rb_tree, hash, NODE_DIR, &ret_node);
@@ -684,7 +684,7 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 	}
 
 	NOVA_STATS_ADD(fast_checked_pages, checked_pages);
-	nova_dbg_verbose("checked pages %lu, freed %d\n", checked_pages,
+	nova_dbg_verbose("checked pages %#lx, freed %d\n", checked_pages,
 			 freed_pages);
 	checked_pages -= freed_pages;
 
@@ -737,7 +737,7 @@ int nova_inode_log_fast_gc(struct super_block *sb, struct nova_inode *pi,
 
 	if (force_thorough || (blocks && blocks * 2 < checked_pages)) {
 		nova_dbg_verbose(
-			"Thorough GC for inode %lu: checked pages %lu, valid pages %lu\n",
+			"Thorough GC for inode %lu: checked pages %#lx, valid pages %#lx\n",
 			sih->ino, checked_pages, blocks);
 		blocks = nova_inode_log_thorough_gc(sb, pi, pic, sih, blocks,
 						    checked_pages);

@@ -64,7 +64,7 @@ static struct dentry *nova_lookup(struct inode *dir, struct dentry *dentry,
 		inode = nova_iget(dir->i_sb, ino);
 		if (inode == ERR_PTR(-ESTALE) || inode == ERR_PTR(-ENOMEM) ||
 		    inode == ERR_PTR(-EACCES)) {
-			nova_err(dir->i_sb, "%s: get inode failed: %lu\n",
+			nova_err(dir->i_sb, "%s: get inode failed: %#lx\n",
 				 __func__, (unsigned long)ino);
 			return ERR_PTR(-EIO);
 		}
@@ -434,8 +434,11 @@ static int nova_unlink(struct inode *dir, struct dentry *dentry)
 	update_dir.tail = 0;
 	update_dir.alter_tail = 0;
 	retval = nova_remove_dentry(dentry, 0, &update_dir, epoch_id, false);
-	if (retval)
+	if (retval) {
+		nova_dbg_verbose("%s: remove dentry error: %d\n", __func__,
+				 retval);
 		goto out;
+	}
 
 	inode_set_ctime(inode, inode_get_ctime_sec(dir),
 			inode_get_ctime_nsec(dir));
@@ -450,8 +453,12 @@ static int nova_unlink(struct inode *dir, struct dentry *dentry)
 	update.alter_tail = 0;
 	retval = nova_append_link_change_entry(sb, pi, inode, &update,
 					       &old_linkc, epoch_id);
-	if (retval)
+	if (retval) {
+		nova_dbg_verbose(
+			"%s: nova append link change entry error: %d\n",
+			__func__, retval);
 		goto out;
+	}
 
 	nova_lite_transaction_for_time_and_link(sb, pi, pidir, inode, dir,
 						&update, &update_dir,
@@ -474,7 +481,6 @@ static int nova_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	struct super_block *sb = dir->i_sb;
 	struct inode *inode;
 	struct nova_inode *pidir, *pi;
-	struct nova_inode pic;
 	struct nova_inode_info *si, *sidir;
 	struct nova_inode_info_header *sih = NULL;
 	struct nova_inode_update update;
@@ -514,10 +520,8 @@ static int nova_mkdir(struct mnt_idmap *idmap, struct inode *dir,
 	}
 
 	pi = nova_get_inode(sb, inode);
-	memcpy(&pic, pi, sizeof(struct nova_inode));
-	err = nova_append_dir_init_entries(sb, pi, &pic, inode->i_ino,
-					   dir->i_ino, epoch_id);
-	memcpy_to_pmem_nocache(pi, &pic, sizeof(struct nova_inode));
+	err = nova_append_dir_init_entries(sb, pi, inode->i_ino, dir->i_ino,
+					   epoch_id);
 	if (err < 0)
 		goto out_err;
 
@@ -613,7 +617,7 @@ static int nova_rmdir(struct inode *dir, struct dentry *dentry)
 			 inode->i_ino, dir->i_ino, dir->i_nlink);
 
 	if (inode->i_nlink != 2)
-		nova_dbg("empty directory %lu has nlink!=2 (%d), dir %lu",
+		nova_dbg("empty directory %#lx has nlink!=2 (%d), dir %lu",
 			 inode->i_ino, inode->i_nlink, dir->i_ino);
 
 	epoch_id = nova_get_epoch_id(sb);
@@ -764,7 +768,7 @@ static int nova_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 		if (le64_to_cpu(father_entryc->ino) != old_dir->i_ino)
 			nova_err(
 				sb,
-				"%s: dir %lu parent should be %lu, but actually %lu\n",
+				"%s: dir %lu parent should be %#lx, but actually %#lx\n",
 				__func__, old_inode->i_ino, old_dir->i_ino,
 				le64_to_cpu(father_entry->ino));
 	}

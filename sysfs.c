@@ -113,10 +113,10 @@ static int nova_seq_IO_show(struct seq_file *seq, void *v)
 	}
 
 	seq_printf(seq,
-		   "alloc log count %lu, allocated log pages %lu\n"
-		   "alloc data count %lu, allocated data pages %lu\n"
-		   "free log count %lu, freed log pages %lu\n"
-		   "free data count %lu, freed data pages %lu\n",
+		   "alloc log count %#lx, allocated log pages %#lx\n"
+		   "alloc data count %#lx, allocated data pages %#lx\n"
+		   "free log count %#lx, freed log pages %#lx\n"
+		   "free data count %#lx, freed data pages %#lx\n",
 		   alloc_log_count, alloc_log_pages, alloc_data_count,
 		   alloc_data_pages, free_log_count, freed_log_pages,
 		   free_data_count, freed_data_pages);
@@ -224,7 +224,7 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 		free_list = nova_get_free_list(sb, i);
 		seq_printf(
 			seq,
-			"Free list %d: block start %lu, block end %lu, num_blocks %lu, num_free_blocks %lu, blocknode %lu\n",
+			"Free list %d: block start %#lx, block end %#lx, num_blocks %#lx, num_free_blocks %#lx, blocknode %#lx\n",
 			i, free_list->data_list.block_start,
 			free_list->data_list.block_end,
 			free_list->data_list.block_end -
@@ -233,20 +233,20 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 			free_list->data_list.num_blocknode);
 
 		if (free_list->data_list.first_node) {
-			seq_printf(seq, "First node %lu - %lu\n",
+			seq_printf(seq, "First node %#lx - %#lx\n",
 				   free_list->data_list.first_node->range_low,
 				   free_list->data_list.first_node->range_high);
 		}
 
 		if (free_list->data_list.last_node) {
-			seq_printf(seq, "Last node %lu - %lu\n",
+			seq_printf(seq, "Last node %#lx - %#lx\n",
 				   free_list->data_list.last_node->range_low,
 				   free_list->data_list.last_node->range_high);
 		}
 
 		seq_printf(
 			seq,
-			"Free list %d: csum start %lu, replica csum start %lu, csum blocks %lu, parity start %lu, parity blocks %lu\n",
+			"Free list %d: csum start %#lx, replica csum start %#lx, csum blocks %#lx, parity start %#lx, parity blocks %#lx\n",
 			i, free_list->meta_list.csum_start,
 			free_list->meta_list.replica_csum_start,
 			free_list->meta_list.num_csum_blocks,
@@ -255,7 +255,7 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 
 		seq_printf(
 			seq,
-			"Free list %d: alloc log count %lu, allocated log pages %lu, alloc data count %lu, allocated data pages %lu, free log count %lu, freed log pages %lu, free data count %lu, freed data pages %lu\n",
+			"Free list %d: alloc log count %#lx, allocated log pages %#lx, alloc data count %#lx, allocated data pages %#lx, free log count %#lx, freed log pages %#lx, free data count %#lx, freed data pages %#lx\n",
 			i, free_list->meta_list.alloc_count,
 			free_list->meta_list.alloc_pages,
 			free_list->data_list.alloc_count,
@@ -272,7 +272,7 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 		data_pages -= free_list->data_list.freed_pages;
 	}
 
-	seq_printf(seq, "\nCurrently used pmem pages: log %lu, data %lu\n",
+	seq_printf(seq, "\nCurrently used pmem pages: log %#lx, data %#lx\n",
 		   log_pages, data_pages);
 
 	return 0;

@@ -97,14 +97,14 @@ static int nova_failure_insert_inodetree(struct super_block *sb,
 	int ret;
 
 	if (ino_low > ino_high) {
-		nova_err(sb, "%s: ino low %lu, ino high %lu\n", __func__,
+		nova_err(sb, "%s: ino low %#lx, ino high %#lx\n", __func__,
 			 ino_low, ino_high);
 		BUG();
 	}
 
 	cpu = ino_low % sbi->cpus;
 	if (ino_high % sbi->cpus != cpu) {
-		nova_err(sb, "%s: ino low %lu, ino high %lu\n", __func__,
+		nova_err(sb, "%s: ino low %#lx, ino high %#lx\n", __func__,
 			 ino_low, ino_high);
 		BUG();
 	}
@@ -118,7 +118,7 @@ static int nova_failure_insert_inodetree(struct super_block *sb,
 	ret = nova_find_free_slot(tree, internal_low, internal_high, &prev,
 				  &next);
 	if (ret) {
-		nova_dbg("%s: ino %lu - %lu already exists!: %d\n", __func__,
+		nova_dbg("%s: ino %lu - %#lx already exists!: %d\n", __func__,
 			 ino_low, ino_high, ret);
 		mutex_unlock(&inode_map->inode_table_mutex);
 		return ret;
@@ -345,7 +345,7 @@ static int nova_init_inode_list_from_inode(struct super_block *sb)
 
 		cpuid = (entry->range_low & CPUID_MASK) >> 56;
 		if (cpuid >= sbi->cpus) {
-			nova_err(sb, "Invalid cpuid %lu\n", cpuid);
+			nova_err(sb, "Invalid cpuid %#lx\n", cpuid);
 			nova_free_inode_node(range_node);
 			NOVA_ASSERT(0);
 			nova_destroy_inode_trees(sb);
@@ -376,7 +376,7 @@ static int nova_init_inode_list_from_inode(struct super_block *sb)
 		curr_p += sizeof(struct nova_range_node_lowhigh);
 	}
 
-	nova_dbg("%s: %lu inode nodes\n", __func__, num_inode_node);
+	nova_dbg("%s: %#lx inode nodes\n", __func__, num_inode_node);
 out:
 	nova_free_inode_log(sb, pi, &sih);
 	return ret;
@@ -507,7 +507,7 @@ void nova_save_inode_list_to_log(struct super_block *sb)
 	nova_flush_buffer(&pi->log_head, CACHELINE_SIZE, 0);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
-	nova_dbg_verbose("%s: %lu inode nodes, pi head 0x%llx, tail 0x%llx\n",
+	nova_dbg_verbose("%s: %#lx inode nodes, pi head 0x%llx, tail 0x%llx\n",
 			 __func__, num_nodes, pi->log_head, pi->log_tail);
 }
 
@@ -536,7 +536,7 @@ void _nova_save_blocknode_mappings_to_log(struct super_block *sb,
 	for (i = 0; i < sbi->cpus; i++) {
 		sub_free_list = nova_get_sub_free_list(sb, i, meta);
 		num_blocknode += sub_free_list->num_blocknode;
-		nova_dbg_verbose("%s: free list %d: %lu nodes\n", __func__, i,
+		nova_dbg_verbose("%s: free list %d: %#lx nodes\n", __func__, i,
 				 sub_free_list->num_blocknode);
 	}
 
@@ -565,7 +565,7 @@ void _nova_save_blocknode_mappings_to_log(struct super_block *sb,
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	nova_dbg_verbose(
-		"%s: %s %lu blocknodes, %lu log pages, pi head 0x%llx, tail 0x%llx\n",
+		"%s: %s %#lx blocknodes, %#lx log pages, pi head 0x%llx, tail 0x%llx\n",
 		__func__, (meta ? "meta" : "data"), num_blocknode, num_pages,
 		pi->log_head, pi->log_tail);
 }
@@ -590,8 +590,8 @@ static int nova_insert_blocknode_map(struct super_block *sb, int cpuid,
 	int ret;
 
 	num_blocks = high - low + 1;
-	nova_dbg_verbose("%s: cpu %d, low %lu, high %lu, num %lu\n", __func__,
-			 cpuid, low, high, num_blocks);
+	nova_dbg_verbose("%s: cpu %d, low %#lx, high %#lx, num %#lx\n",
+			 __func__, cpuid, low, high, num_blocks);
 	sub_free_list = nova_get_sub_free_list(sb, cpuid, meta);
 
 	tree = &(sub_free_list->block_free_tree);
@@ -653,7 +653,7 @@ static int __nova_build_blocknode_map(struct super_block *sb,
 		next = find_next_bit(bitmap, end, next);
 		if (nova_insert_blocknode_map(sb, cpuid, meta, low << scale,
 					      (next << scale) - 1)) {
-			nova_dbg("Error: could not insert %lu - %lu\n",
+			nova_dbg("Error: could not insert %#lx - %#lx\n",
 				 low << scale, ((next << scale) - 1));
 		}
 		start = next;
@@ -1480,8 +1480,8 @@ static int nova_failure_recovery_crawl(struct super_block *sb)
 				count++;
 
 				curr_addr = (unsigned long)
-					nova_get_virt_addr_from_offset(sb,
-								       curr, 1);
+					nova_get_virt_addr_from_offset(sb, curr,
+								       1);
 				/* Next page resides at the last 8 bytes */
 				curr_addr += 2097152 - 8;
 				curr = *(u64 *)(curr_addr);
@@ -1562,7 +1562,7 @@ int nova_failure_recovery(struct super_block *sb)
 
 	free_resources(sb);
 
-	nova_dbg("Failure recovery total recovered %lu\n",
+	nova_dbg("Failure recovery total recovered %#lx\n",
 		 sbi->s_inodes_used_count - NOVA_NORMAL_INODE_START);
 	return ret;
 }

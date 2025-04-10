@@ -282,33 +282,36 @@ static inline unsigned long nova_get_numblocks(unsigned short btype)
 	return num_blocks;
 }
 
-static inline int nova_blocknr_to_index(int blocknr, int btype)
+static inline int nova_blknr_to_blkidx(int blknr, int btype)
 {
-	return blocknr / nova_get_numblocks(btype);
+	return blknr / nova_get_numblocks(btype);
+}
+
+static inline int nova_blknr_to_nvmidx(struct nova_sb_info *sbi, int blknr,
+				       int btype, int meta)
+{
+	if (meta) {
+		return ((nova_blknr_to_blkidx(blknr, btype) %
+			 sbi->meta_nvm_num) +
+			sbi->meta_head_nvm_idx);
+	} else {
+		return ((nova_blknr_to_blkidx(blknr, btype) %
+			 sbi->data_nvm_num) +
+			sbi->data_head_nvm_idx);
+	}
+}
+
+static inline int nova_nvmidx_to_socket(struct nova_sb_info *sbi, int nvmidx)
+{
+	return pmem_ar_dev.numa_node[nvmidx];
 }
 
 /* Which socket this block belongs to */
 static inline int nova_block_to_socket(struct nova_sb_info *sbi, int blocknr,
 				       int btype, int meta)
 {
-	int socket;
-	if (meta) {
-		socket = nova_blocknr_to_index(blocknr, btype) %
-			 sbi->meta_sockets;
-		socket += sbi->meta_head_socket;
-	} else {
-		if (sbi->meta_data_mix) {
-			// the second socket will separated into 2 parts
-			// each part take one blk to do io
-			socket = nova_blocknr_to_index(blocknr, btype) %
-				 (sbi->data_sockets + 1);
-		} else {
-			socket = nova_blocknr_to_index(blocknr, btype) %
-				 sbi->data_sockets;
-		}
-		socket += sbi->data_head_socket;
-	}
-	return socket;
+	return nova_nvmidx_to_socket(sbi, nova_blknr_to_nvmidx(sbi, blocknr,
+							       btype, meta));
 }
 
 static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr,
@@ -323,18 +326,17 @@ static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr,
 }
 
 static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, int blocknr,
-				       int meta)
+				       int btype, int meta)
 {
 	int off;
-	if (meta)
-		off = blocknr / sbi->meta_sockets;
-	else {
-		if (sbi->meta_data_mix) {
-			off = blocknr / (sbi->data_sockets + 1);
-		} else {
-			off = blocknr / sbi->data_sockets;
-		}
+	int blkidx = nova_blknr_to_blkidx(blocknr, btype);
+	if (meta) {
+		off = blkidx / sbi->meta_nvm_num;
+	} else {
+		off = blkidx / sbi->data_nvm_num;
 	}
+	off *= nova_get_numblocks(btype);
+	off += blocknr % nova_get_numblocks(btype);
 	return off;
 }
 
@@ -349,16 +351,14 @@ static inline void *nova_get_virt_addr_from_offset(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	void *ret;
 
-	if (!off)
-		return NULL;
-
 	if (meta)
 		ret = (void *)(sbi->meta_start_virt + off);
 	else
 		ret = (void *)(sbi->data_start_virt + off);
 
-	nova_dbg_verbose("%s: %s return virt addr: %#lx\n", __func__,
-			 (meta ? "meta" : "data"), (unsigned long)ret);
+	// nova_dbg_verbose("%s: %s off: %#llx, return virt addr: %#lx\n",
+	// 		 __func__, (meta ? "meta" : "data"), off,
+	// 		 (unsigned long)ret);
 
 	return ret;
 }
@@ -406,28 +406,9 @@ static inline u64 nova_get_block_off(struct super_block *sb,
 				     unsigned short btype, int meta)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
-	nova_dbg_verbose("%s: input blocknr: %#lx, btype: %d, %s\n", __func__,
-			 blocknr, btype, (meta ? "meta" : "data"));
-	int socket = nova_block_to_socket(sbi, blocknr, btype, meta);
-	size_t socket_off = nova_block_to_nvmoff(sbi, blocknr, meta);
-	u64 ret_off;
-	if (sbi->meta_data_mix && (socket == 2)) {
-		// the second part of the second socket
-		// meta_num_blocks is the number of blocks of half socket
-		nova_dbg_verbose(
-			"%s: meta data mix and locate on second socket's second part\n",
-			__func__);
-		ret_off = (sbi->block_info[1].start_block +
-			   sbi->meta_num_blocks + socket_off)
-			  << PAGE_SHIFT;
-	} else {
-		ret_off = (sbi->block_info[socket].start_block + socket_off)
-			  << PAGE_SHIFT;
-	}
-	nova_dbg_verbose(
-		"%s: output block off: %#llx, socket: %d, socket_off: %#lx\n",
-		__func__, ret_off, socket, socket_off);
-	return ret_off;
+	int nvmidx = nova_blknr_to_nvmidx(sbi, blocknr, btype, meta);
+	size_t nvmoff = nova_block_to_nvmoff(sbi, blocknr, btype, meta);
+	return (sbi->block_info[nvmidx].start_block + nvmoff) << PAGE_SHIFT;
 }
 
 static inline int nova_get_cpuid(struct super_block *sb)
@@ -537,7 +518,7 @@ static inline bool nova_range_node_checksum_ok(struct nova_range_node *node)
 	ret = node->csum == nova_calculate_range_node_csum(node);
 	if (!ret) {
 		nova_dbg(
-			"%s: checksum failure, vma %p, range low %lu, range high %lu, csum 0x%x\n",
+			"%s: checksum failure, vma %p, range low %#lx, range high %#lx, csum 0x%x\n",
 			__func__, node->vma, node->range_low, node->range_high,
 			node->csum);
 	}
@@ -641,7 +622,7 @@ static inline unsigned long get_nvmm(struct super_block *sb,
 
 		curr = nova_get_addr_off(sbi, entry, 1);
 		nova_dbg(
-			"Entry ERROR: inode %lu, curr 0x%llx, pgoff %lu, entry pgoff %llu, num %u\n",
+			"Entry ERROR: inode %lu, curr 0x%llx, pgoff %#lx, entry pgoff %llu, num %u\n",
 			sih->ino, curr, pgoff, entry->pgoff, entry->num_pages);
 		nova_print_nova_log_pages(sb, sih);
 		nova_print_nova_log(sb, sih);
@@ -948,6 +929,9 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 
 	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff, 1);
 
+	// nova_dbg_verbose("%s: data csum addr: %#llx\n", __func__,
+	// 		 (u64)data_csum_addr);
+
 	return data_csum_addr;
 }
 
@@ -969,7 +953,7 @@ static inline void *nova_get_parity_addr(struct super_block *sb,
 	cpu = nova_block_to_cpu(sbi, blocknr, 0);
 
 	if (cpu >= sbi->cpus) {
-		nova_dbg("%s: Invalid blocknr %lu\n", __func__, blocknr);
+		nova_dbg("%s: Invalid blocknr %#lx\n", __func__, blocknr);
 		return NULL;
 	}
 
@@ -1002,6 +986,12 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 	unsigned long irq_flags = 0;
 	INIT_TIMING(memcpy_time);
 	INIT_TIMING(delegation_time);
+
+	// if (meta){
+	// 	nova_dbg_verbose("%s: meta kmem dest: %#llx\n", __func__, (u64)kmem_dest);
+	// } else {
+	// 	nova_dbg_verbose("%s: data kmem dest: %#llx\n", __func__, (u64)kmem_dest);
+	// }
 
 	nova_memunlock_range(sb, kmem_dest, bytes, &irq_flags);
 	if (bytes < NOVA_WRITE_DELEGATION_LIMIT) {
@@ -1176,8 +1166,7 @@ int nova_append_dentry(struct super_block *sb, struct nova_inode *pi,
 		       unsigned short de_len, struct nova_inode_update *update,
 		       int link_change, u64 epoch_id);
 int nova_append_dir_init_entries(struct super_block *sb, struct nova_inode *pi,
-				 struct nova_inode *pic, u64 self_ino,
-				 u64 parent_ino, u64 epoch_id);
+				 u64 self_ino, u64 parent_ino, u64 epoch_id);
 int nova_add_dentry(struct dentry *dentry, u64 ino, int inc_link,
 		    struct nova_inode_update *update, u64 epoch_id);
 int nova_remove_dentry(struct dentry *dentry, int dec_link,

@@ -29,6 +29,7 @@ int nova_init_ring_buffers(int sockets)
 			if (ret == NULL)
 				goto err;
 
+			ret->writing = 0;
 			nova_ring_buffer[i][j] = ret;
 		}
 

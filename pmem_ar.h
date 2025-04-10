@@ -14,6 +14,7 @@ struct pmem_arg_info {
 
 	/* path to these devices */
 	char *paths[PMEM_AR_MAX_DEVICE];
+	int numa_node[PMEM_AR_MAX_DEVICE];
 };
 
 #define PMEM_AR_CMD_CREATE 0

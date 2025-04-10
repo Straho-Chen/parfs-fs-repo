@@ -11,6 +11,7 @@ struct pmem_ar_dev {
 
 	/* number of pmem devices in the pmem array*/
 	int elem_num;
+	int numa_nodes;
 
 	/* bdevs of pmem devices in the pmem array */
 	struct block_device *bdevs[PMEM_AR_MAX_DEVICE];
@@ -19,6 +20,7 @@ struct pmem_ar_dev {
 
 	unsigned long virt_addr[PMEM_AR_MAX_DEVICE];
 	unsigned long phy_addr[PMEM_AR_MAX_DEVICE];
+	int numa_node[PMEM_AR_MAX_DEVICE];
 	unsigned long size_in_bytes[PMEM_AR_MAX_DEVICE];
 };
 

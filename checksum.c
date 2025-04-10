@@ -81,7 +81,7 @@ static int get_entry_copy(struct super_block *sb, void *entry, u32 *entry_csum,
 		*entry_csum = 0;
 		*entry_size = 0;
 		nova_dbg(
-			"%s: unknown or unsupported entry type (%d) for checksum, 0x%llx\n",
+			"%s: unknown or unsupported entry type (%d) for checksum, %#llx\n",
 			__func__, type, (u64)entry);
 		ret = -EINVAL;
 		dump_stack();
@@ -934,7 +934,7 @@ bool nova_verify_data_csum(struct super_block *sb,
 			 *     data recovery to see if one csum is still good
 			 */
 			nova_dbg(
-				"%s: nova data corruption detected! inode %lu, strp %lu of %lu, block offset %lu, stripe nr %lu, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
+				"%s: nova data corruption detected! inode %lu, strp %#lx of %#lx, block offset %#lx, stripe nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
 				__func__, sih->ino, strp, strps, blockoff,
 				strp_nr, csum_calc, csum_nvmm0, csum_nvmm1);
 
@@ -973,7 +973,7 @@ bool nova_verify_data_csum(struct super_block *sb,
 			 * considered corrupted.
 			 */
 			nova_dbg(
-				"%s: nova checksum corruption detected! inode %lu, strp %lu of %lu, block offset %lu, stripe nr %lu, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
+				"%s: nova checksum corruption detected! inode %lu, strp %#lx of %#lx, block offset %#lx, stripe nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
 				__func__, sih->ino, strp, strps, blockoff,
 				strp_nr, csum_calc, csum_nvmm0, csum_nvmm1);
 

@@ -165,9 +165,15 @@ static int nova_get_nvmm_info(struct super_block *sb, struct nova_sb_info *sbi)
 		pmem_ar_dev.virt_addr[i] = (unsigned long)virt_addr;
 		pmem_ar_dev.phy_addr[i] = pfn_t_to_pfn(__pfn_t) << PAGE_SHIFT;
 		pmem_ar_dev.size_in_bytes[i] = size;
+
+		nova_dbg_verbose(
+			"pmem_ar_dev[%d]: virt_addr: %#lx, phy_addr: %#lx, size_in_bytes: %#lx\n",
+			i, pmem_ar_dev.virt_addr[i], pmem_ar_dev.phy_addr[i],
+			pmem_ar_dev.size_in_bytes[i]);
 	}
 
-	sbi->device_num = pmem_ar_dev.elem_num;
+	sbi->sockets = pmem_ar_dev.numa_nodes;
+	nova_info("sockets: %d\n", sbi->sockets);
 
 	return 0;
 }
@@ -188,11 +194,15 @@ static inline void nova_config_1_nvmm(struct nova_sb_info *sbi)
 		(sbi->tail_reserved_blocks << PAGE_SHIFT);
 	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
 	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+	sbi->meta_head_nvm_idx = 0;
+	sbi->meta_nvm_num = 1;
 
 	data_size = pmem_ar_dev.size_in_bytes[0] - meta_size;
 	sbi->data_start_virt = sbi->meta_start_virt + meta_size;
 	sbi->phys_addr = pmem_ar_dev.phy_addr[0] + meta_size;
 	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
+	sbi->data_head_nvm_idx = 0;
+	sbi->data_nvm_num = 1;
 
 	sbi->initsize = meta_size + data_size;
 
@@ -200,12 +210,8 @@ static inline void nova_config_1_nvmm(struct nova_sb_info *sbi)
 	sbi->block_info[0].start_block = 0;
 	sbi->block_info[0].end_block = (sbi->initsize >> PAGE_SHIFT) - 1;
 
-	sbi->meta_head_socket = 0;
-	sbi->meta_sockets = 1;
-	sbi->data_head_socket = 0;
-	sbi->data_sockets = 1;
 	nova_info(
-		"use 1 nvm; meta_start_virt: %#lx, meta_size: %lu; data_start_virt: %#lx, data_size: %lu\n",
+		"use 1 nvm; meta_start_virt: %#lx, meta_size: %#lx; data_start_virt: %#lx, data_size: %#lx\n",
 		(unsigned long)sbi->meta_start_virt, meta_size,
 		(unsigned long)sbi->data_start_virt, data_size);
 }
@@ -228,12 +234,15 @@ static inline void nova_config_2_nvmm(struct nova_sb_info *sbi)
 		(sbi->tail_reserved_blocks << PAGE_SHIFT);
 	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
 	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+	sbi->meta_head_nvm_idx = 0;
+	sbi->meta_nvm_num = 1;
 
-	data_size = pmem_ar_dev.size_in_bytes[0] +
-		    pmem_ar_dev.size_in_bytes[1] - meta_size;
+	data_size = pmem_ar_dev.size_in_bytes[0];
 	sbi->data_start_virt = (void *)(sbi->meta_start_virt + meta_size);
 	sbi->phys_addr = pmem_ar_dev.phy_addr[0] + meta_size;
 	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
+	sbi->data_head_nvm_idx = 0;
+	sbi->data_nvm_num = 2;
 
 	sbi->initsize = meta_size + data_size;
 
@@ -247,18 +256,12 @@ static inline void nova_config_2_nvmm(struct nova_sb_info *sbi)
 		 (unsigned long)sbi->data_start_virt) >>
 		PAGE_SHIFT;
 	sbi->block_info[1].end_block =
-		sbi->block_info[1].start_block +
-		(pmem_ar_dev.size_in_bytes[1] >> PAGE_SHIFT) - 1;
+		sbi->block_info[1].start_block + sbi->data_num_blocks - 1;
 
-	sbi->meta_head_socket = 0;
-	sbi->meta_sockets = 1;
-	sbi->data_head_socket = 0;
-	sbi->data_sockets = 2;
 	nova_info(
-		"use 2 nvm; meta_start_virt: %#lx, meta_size: %lu; data_start_virt: %#lx, data_size: %lu\n",
+		"use 2 nvm; meta_start_virt: %#lx, meta_size: %#lx; data_start_virt: %#lx, data_size: %#lx\n",
 		(unsigned long)sbi->meta_start_virt, meta_size,
 		(unsigned long)sbi->data_start_virt, data_size);
-	sbi->meta_data_mix = 1;
 }
 
 static inline void nova_config_3_nvmm(struct nova_sb_info *sbi)
@@ -277,6 +280,8 @@ static inline void nova_config_3_nvmm(struct nova_sb_info *sbi)
 		(sbi->tail_reserved_blocks << PAGE_SHIFT);
 	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
 	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+	sbi->meta_head_nvm_idx = 0;
+	sbi->meta_nvm_num = 1;
 
 	data_size = 0;
 	for (i = 1; i < pmem_ar_dev.elem_num; i++) {
@@ -286,9 +291,11 @@ static inline void nova_config_3_nvmm(struct nova_sb_info *sbi)
 		    sbi->data_start_virt == NULL) {
 			sbi->data_start_virt = (void *)pmem_ar_dev.virt_addr[i];
 			sbi->phys_addr = pmem_ar_dev.phy_addr[i];
+			sbi->data_head_nvm_idx = i;
 		}
 	}
 	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
+	sbi->data_nvm_num = pmem_ar_dev.elem_num - 1;
 
 	sbi->initsize = meta_size + data_size;
 
@@ -308,16 +315,12 @@ static inline void nova_config_3_nvmm(struct nova_sb_info *sbi)
 			(pmem_ar_dev.size_in_bytes[i] >> PAGE_SHIFT) - 1;
 	}
 
-	sbi->meta_head_socket = 0;
-	sbi->meta_sockets = 1;
-	sbi->data_head_socket = 1;
-	sbi->data_sockets = pmem_ar_dev.elem_num - 1;
 	nova_info(
-		"use %d nvm; meta_start_virt: %#lx, meta_size: %lu, meta_sockets: %d; data_start_virt: %#lx, data_size: %lu, data_sockets: %d\n",
+		"use %d nvm; meta_start_virt: %#lx, meta_size: %#lx, meta_head_nvm_idx: %d; data_start_virt: %#lx, data_size: %#lx, data_head_nvm_idx: %d\n",
 		pmem_ar_dev.elem_num, (unsigned long)sbi->meta_start_virt,
-		meta_size, sbi->meta_sockets,
+		meta_size, sbi->meta_head_nvm_idx,
 		(unsigned long)sbi->data_start_virt, data_size,
-		sbi->data_sockets);
+		sbi->data_head_nvm_idx);
 }
 
 static inline int nova_config_nvmm(struct super_block *sb,
@@ -600,7 +603,7 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	INIT_TIMING(init_time);
 
 	NOVA_START_TIMING(new_init_t, init_time);
-	nova_info("creating an empty nova of size %lu\n", size);
+	nova_info("creating an empty nova of size %#lx\n", size);
 
 	if (!nova_check_size(sb, size)) {
 		nova_warn("Specified NOVA size too small 0x%lx.\n", size);
@@ -677,10 +680,8 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	nova_memlock_inode(sb, root_i, &irq_flags);
 
 	epoch_id = nova_get_epoch_id(sb);
-	memcpy(&root_ic, root_i, sizeof(struct nova_inode));
-	nova_append_dir_init_entries(sb, root_i, &root_ic, NOVA_ROOT_INO,
-				     NOVA_ROOT_INO, epoch_id);
-	memcpy_to_pmem_nocache(root_i, &root_ic, sizeof(struct nova_inode));
+	nova_append_dir_init_entries(sb, root_i, NOVA_ROOT_INO, NOVA_ROOT_INO,
+				     epoch_id);
 
 	PERSISTENT_MARK();
 	PERSISTENT_BARRIER();
@@ -700,7 +701,6 @@ static inline void set_default_opts(struct nova_sb_info *sbi)
 	nova_info("%d cpus online\n", sbi->cpus);
 	sbi->map_id = 0;
 	sbi->snapshot_si = NULL;
-	sbi->meta_data_mix = 0;
 	sbi->blocksize = PAGE_SIZE;
 	sbi->blocksize_bits = PAGE_SHIFT;
 	nova_set_blocksize(sbi->sb, sbi->blocksize);
@@ -961,7 +961,7 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	blocksize = le32_to_cpu(sbi->nova_sb->s_blocksize);
 	nova_set_blocksize(sb, blocksize);
 
-	nova_dbg_verbose("blocksize %lu\n", blocksize);
+	nova_dbg_verbose("blocksize %#lx\n", blocksize);
 
 	/* Read the root inode */
 	root_pi = nova_get_inode_by_ino(sb, NOVA_ROOT_INO);
@@ -1015,21 +1015,13 @@ setup_sb:
 	 * We need to init the delegation thread for meta too.
 	 * So that we can do meta block clean in delegation way.
 	 */
-	if (sbi->meta_data_mix)
-		retval = nova_init_ring_buffers(sbi->data_sockets);
-	else
-		retval = nova_init_ring_buffers(sbi->meta_sockets +
-						sbi->data_sockets);
+	retval = nova_init_ring_buffers(sbi->sockets);
 	if (retval) {
 		nova_err(sb, "Failed to initialize ring buffers\n");
 		goto out;
 	}
 
-	if (sbi->meta_data_mix)
-		retval = nova_init_agents(sbi->cpus, sbi->data_sockets);
-	else
-		retval = nova_init_agents(sbi->cpus, sbi->meta_sockets +
-							     sbi->data_sockets);
+	retval = nova_init_agents(sbi->cpus, sbi->sockets);
 	if (retval) {
 		nova_err(sb, "Failed to initialize agents\n");
 		goto out;
@@ -1097,11 +1089,11 @@ static int nova_show_options(struct seq_file *seq, struct dentry *root)
 
 	//seq_printf(seq, ",physaddr=0x%016llx", (u64)sbi->phys_addr);
 	//if (sbi->initsize)
-	//     seq_printf(seq, ",init=%luk", sbi->initsize >> 10);
+	//     seq_printf(seq, ",init=%#lxk", sbi->initsize >> 10);
 	//if (sbi->blocksize)
-	//	 seq_printf(seq, ",bs=%lu", sbi->blocksize);
+	//	 seq_printf(seq, ",bs=%#lx", sbi->blocksize);
 	//if (sbi->bpi)
-	//	seq_printf(seq, ",bpi=%lu", sbi->bpi);
+	//	seq_printf(seq, ",bpi=%#lx", sbi->bpi);
 	if (sbi->mode != (0777 | S_ISVTX))
 		seq_printf(seq, ",mode=%03o", sbi->mode);
 	if (uid_valid(sbi->uid))
@@ -1295,7 +1287,7 @@ static void nova_i_callback(struct rcu_head *head)
 
 static void nova_destroy_inode(struct inode *inode)
 {
-	nova_dbg_verbose("%s: %lu\n", __func__, inode->i_ino);
+	nova_dbg_verbose("%s: %#lx\n", __func__, inode->i_ino);
 	call_rcu(&inode->i_rcu, nova_i_callback);
 }
 
@@ -1445,7 +1437,7 @@ static int __init init_nova_fs(void)
 	nova_proc_root = proc_mkdir(proc_dirname, NULL);
 
 	nova_dbg(
-		"Data structure size: inode %lu, log_page %lu, file_write_entry %lu, dir_entry(max) %d, setattr_entry %lu, link_change_entry %lu\n",
+		"Data structure size: inode %lu, log_page %#lx, file_write_entry %#lx, dir_entry(max) %d, setattr_entry %#lx, link_change_entry %#lx\n",
 		sizeof(struct nova_inode), sizeof(struct nova_inode_log_page),
 		sizeof(struct nova_file_write_entry),
 		NOVA_DIR_LOG_REC_LEN(NOVA_NAME_LEN),

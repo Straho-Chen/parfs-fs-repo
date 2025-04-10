@@ -43,13 +43,17 @@ static int pmem_ar_create(unsigned long arg)
 
 	if (copy_from_user(&pmem_arg_info, (void __user *)arg,
 			   sizeof(struct pmem_arg_info))) {
+		printk("ERROR: copy pmem_ar_info failed!\n");
 		ret = -EFAULT;
 		goto err_out;
 	}
 
+	pmem_ar_dev.numa_nodes = 0;
+
 	for (i = 0; i < pmem_arg_info.num; i++) {
 		if (strncpy_from_user(path, pmem_arg_info.paths[i], PATH_MAX) <
 		    0) {
+			printk("ERROR: copy path failed!\n");
 			ret = -EFAULT;
 			goto err_out;
 		}
@@ -64,7 +68,12 @@ static int pmem_ar_create(unsigned long arg)
 			ret = PTR_ERR(pmem_ar_dev.bdevs[i]);
 			goto err_out;
 		}
+		if (pmem_arg_info.numa_node[i] > pmem_ar_dev.numa_nodes) {
+			pmem_ar_dev.numa_nodes = pmem_arg_info.numa_node[i];
+		}
 	}
+
+	pmem_ar_dev.numa_nodes++;
 
 	pmem_ar_dev.elem_num = pmem_arg_info.num;
 
