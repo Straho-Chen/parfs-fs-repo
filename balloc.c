@@ -73,15 +73,9 @@ static int nova_data_csum_init_free_list(struct super_block *sb,
 	 * each stripe for each page.  We replicate the checksums at the
 	 * beginning and end of per-cpu region that holds the data they cover.
 	 */
-#if NOVA_XXHASH_CSUM
-	data_csum_blocks = ((sbi->initsize >> NOVA_DEFALUT_BLOCK_SHIFT) *
-			    NOVA_DATA_CSUM_LEN) >>
-			   sbi->blocksize_bits;
-#else
 	data_csum_blocks =
 		((sbi->initsize >> NOVA_STRIPE_SHIFT) * NOVA_DATA_CSUM_LEN) >>
 		sbi->blocksize_bits;
-#endif
 
 	sub_free_list->csum_start = sub_free_list->block_start;
 	sub_free_list->block_start += data_csum_blocks / sbi->cpus;
@@ -975,6 +969,8 @@ static int nova_new_blocks(struct super_block *sb, unsigned long *blocknr,
 	long ret_blocks = 0;
 	int retried = 0;
 	int meta = (atype == LOG);
+	int i;
+	unsigned long blocksize;
 	INIT_TIMING(alloc_time);
 
 	// num_blocks is calculated in 4K granularity
@@ -1037,39 +1033,51 @@ alloc:
 		return -ENOSPC;
 	}
 
+	ret_blocks /= nova_get_numblocks(btype);
+	blocksize = PAGE_SIZE * nova_get_numblocks(btype);
+
 	if (zero) {
 		struct nova_sb_info *sbi = NOVA_SB(sb);
 		unsigned long irq_flags = 0;
-		bp = nova_get_virt_addr_from_offset(
-			sb, nova_get_block_off(sb, new_blocknr, btype, meta),
-			meta);
-		nova_memunlock_range(sb, bp, PAGE_SIZE * ret_blocks,
-				     &irq_flags);
-		if (sbi->delegation_ready) {
-			long issued_cnt[NOVA_MAX_SOCKET];
-			struct nova_notifyer completed_cnt[NOVA_MAX_SOCKET];
-			int socket = nova_block_to_socket(sbi, new_blocknr,
-							  btype, meta);
-			memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
-			memset(completed_cnt, 0,
-			       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
-			// allocated blocks should be contigrous on a single nvm
-			do_nova_nvmm_write(sb, bp, NULL, PAGE_SIZE * ret_blocks,
-					   meta, socket, zero, 1, 0, issued_cnt,
-					   completed_cnt, 0);
-			nova_complete_delegation(issued_cnt, completed_cnt);
-		} else {
-			memset_nt(bp, 0, PAGE_SIZE * ret_blocks);
+		for (i = 0; i < ret_blocks; i++) {
+			bp = nova_get_virt_addr_from_offset(
+				sb,
+				nova_get_block_off(sb, new_blocknr + i, btype,
+						   meta),
+				meta);
+			nova_memunlock_range(sb, bp, blocksize, &irq_flags);
+			if (sbi->delegation_ready) {
+				long issued_cnt[NOVA_MAX_SOCKET];
+				struct nova_notifyer
+					completed_cnt[NOVA_MAX_SOCKET];
+				int socket = nova_block_to_socket(
+					sbi, new_blocknr + i, btype, meta);
+				memset(issued_cnt, 0,
+				       sizeof(long) * NOVA_MAX_SOCKET);
+				memset(completed_cnt, 0,
+				       sizeof(struct nova_notifyer) *
+					       NOVA_MAX_SOCKET);
+				// allocated blocks should be contigrous on a single nvm
+				do_nova_nvmm_write(sb, bp, NULL, blocksize,
+						   meta, socket, zero, 1, 0,
+						   issued_cnt, completed_cnt,
+						   0);
+				nova_complete_delegation(issued_cnt,
+							 completed_cnt);
+			} else {
+				memset_nt(bp, 0, blocksize);
 
-			if (need_resched())
-				cond_resched();
+				if (need_resched())
+					cond_resched();
+			}
+			nova_memlock_range(sb, bp, blocksize, &irq_flags);
 		}
-		nova_memlock_range(sb, bp, PAGE_SIZE * ret_blocks, &irq_flags);
 	}
 	*blocknr = new_blocknr;
 
-	nova_dbg_verbose("Alloc %#lx NVMM blocks %#lx\n", ret_blocks, *blocknr);
-	return ret_blocks / nova_get_numblocks(btype);
+	nova_dbg_verbose("Alloc %#lx NVMM blocks %#lx\n",
+			 ret_blocks * nova_get_numblocks(btype), *blocknr);
+	return ret_blocks;
 }
 
 // Allocate data blocks.  The offset for the allocated block comes back in

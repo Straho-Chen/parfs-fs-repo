@@ -87,6 +87,7 @@ static struct kmem_cache *nova_snapshot_info_cachep;
 
 /* FIXME: should the following variable be one per NOVA instance? */
 unsigned int nova_dbgmask = 0;
+// unsigned int nova_dbgmask = NOVA_DBGMASK_VERBOSE | NOVA_DBGMASK_TRANSACTION;
 // unsigned int nova_dbgmask = NOVA_DBGMASK_VERBOSE;
 // unsigned int nova_dbgmask = NOVA_DBGMASK_DELEGATION;
 
@@ -811,7 +812,6 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	BUILD_BUG_ON(sizeof(struct nova_inode_page_tail) + LOG_BLOCK_TAIL !=
 		     PAGE_SIZE);
 
-	nova_info("NOVA VERIFY DATA CSUM: %d\n", NOVA_VERIFY_DATA_CSUM ? 1 : 0);
 	nova_info("NOVA VERIFY ENTRY CSUM: %d\n",
 		  NOVA_VERIFY_ENTRY_CSUM ? 1 : 0);
 

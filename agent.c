@@ -220,23 +220,37 @@ out:
  */
 static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			     unsigned long uaddr, unsigned long bytes, int zero,
-			     int flush_cache, atomic_t *notify_cnt, int frag)
+			     int flush_cache, atomic_t *notify_cnt)
 {
-	int i = 0, tasks_index = 0;
+	int i = 0;
+	size_t frag;
+	int tasks_index = 0;
 	unsigned long orig_kaddr = kaddr;
 
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
 	INIT_TIMING(memcpy_time);
 
+	frag = bytes / NOVA_AGENT_FRAG_SIZE;
+
 	if (zero) {
 		nova_dbg_delegation("%s: zero, flush_cache:%d\n", __func__,
 				    flush_cache);
 		NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
+		for (i = 0; i < frag * NOVA_AGENT_FRAG_SIZE;
+		     i += NOVA_AGENT_FRAG_SIZE) {
+			if (flush_cache)
+				memset_nt((void *)(kaddr + i), 0,
+					  NOVA_AGENT_FRAG_SIZE);
+			else
+				memset((void *)(kaddr + i), 0,
+				       NOVA_AGENT_FRAG_SIZE);
+		}
+		// last
 		if (flush_cache)
-			memset_nt((void *)kaddr, 0, bytes);
+			memset_nt((void *)(kaddr + i), 0, bytes - i);
 		else
-			memset((void *)kaddr, 0, bytes);
+			memset((void *)(kaddr + i), 0, bytes - i);
 
 		NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);
 		goto out;
@@ -279,25 +293,21 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 #else
 
-	// for (i = 0; i < frag; i++) {
-	// 	if (memcpy_to_pmem_avx_nocache(
-	// 		    (void *)(kaddr + i * bytes / frag),
-	// 		    (void *)(uaddr + i * bytes / frag), bytes / frag)) {
-	// 		nova_warn(
-	// 			"memcpy_to_pmem_avx_nocache failed to copy all\n");
-	// 		goto out;
-	// 	}
-	// }
-
-	// TODO: particial copy may not align to 64 bytes
-	for (i = 0; i < frag; i++) {
-		if (memcpy_to_pmem_nocache((void *)(kaddr + i * bytes / frag),
-					   (void *)(uaddr + i * bytes / frag),
-					   bytes / frag)) {
+	for (i = 0; i < frag * NOVA_AGENT_FRAG_SIZE;
+	     i += NOVA_AGENT_FRAG_SIZE) {
+		if (memcpy_to_pmem_avx_nocache((void *)(kaddr + i),
+					       (void *)(uaddr + i),
+					       NOVA_AGENT_FRAG_SIZE)) {
 			nova_warn(
-				"memcpy_to_pmem_nocache failed to copy all\n");
+				"memcpy_to_pmem_avx_nocache failed to copy all\n");
 			goto out;
 		}
+	}
+	// last
+	if (memcpy_to_pmem_avx_nocache((void *)(kaddr + i), (void *)(uaddr + i),
+				       bytes - i)) {
+		nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
+		goto out;
 	}
 
 #endif
@@ -406,7 +416,7 @@ process_request:
 			do_write_request(request.mm, request.kaddr,
 					 request.uaddr, request.bytes,
 					 request.zero, request.flush_cache,
-					 request.notify_cnt, 8);
+					 request.notify_cnt);
 		} else {
 			nova_warn("Unknown request type: %d", request.type);
 		}

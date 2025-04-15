@@ -3,13 +3,15 @@
 
 #define NOVA_NVM_XP_BUFFER_SIZE (12 * 1024)
 
+#define NOVA_AGENT_FRAG_SIZE 1024
+
 #define NOVA_DELEGATION_ENABLE 1
 
 #define NOVA_MAX_SOCKET 8
 #define NOVA_MAX_AGENT_PER_SOCKET 28
 #define NOVA_MAX_AGENT (NOVA_MAX_SOCKET * NOVA_MAX_AGENT_PER_SOCKET)
 
-#define NOVA_AGENT_TASK_MAX_SIZE (8 + 1)
+#define NOVA_AGENT_TASK_MAX_SIZE (12)
 
 /*
  * Do cond_schuled()/kthread_should_stop() every 100ms when agents are serving
@@ -86,7 +88,6 @@
 
 #define NOVA_DELE_THREAD_SLEEP 0
 
-#define NOVA_VERIFY_DATA_CSUM 0
 #define NOVA_VERIFY_ENTRY_CSUM 0
 
 #define NOVA_XXHASH_CSUM 0

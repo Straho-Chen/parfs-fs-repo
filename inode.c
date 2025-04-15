@@ -943,7 +943,7 @@ void nova_evict_inode(struct inode *inode)
 			goto out;
 	}
 
-	nova_dbg_verbose("%s: %#lx\n", __func__, inode->i_ino);
+	nova_dbg_verbose("%s: %lu\n", __func__, inode->i_ino);
 	if (!inode->i_nlink && !is_bad_inode(inode)) {
 		if (IS_APPEND(inode) || IS_IMMUTABLE(inode))
 			goto out;

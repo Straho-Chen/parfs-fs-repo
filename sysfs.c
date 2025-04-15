@@ -113,10 +113,10 @@ static int nova_seq_IO_show(struct seq_file *seq, void *v)
 	}
 
 	seq_printf(seq,
-		   "alloc log count %#lx, allocated log pages %#lx\n"
-		   "alloc data count %#lx, allocated data pages %#lx\n"
-		   "free log count %#lx, freed log pages %#lx\n"
-		   "free data count %#lx, freed data pages %#lx\n",
+		   "alloc log count %lu, allocated log pages %#lx\n"
+		   "alloc data count %lu, allocated data pages %#lx\n"
+		   "free log count %lu, freed log pages %#lx\n"
+		   "free data count %lu, freed data pages %#lx\n",
 		   alloc_log_count, alloc_log_pages, alloc_data_count,
 		   alloc_data_pages, free_log_count, freed_log_pages,
 		   free_data_count, freed_data_pages);
@@ -255,7 +255,7 @@ static int nova_seq_show_allocator(struct seq_file *seq, void *v)
 
 		seq_printf(
 			seq,
-			"Free list %d: alloc log count %#lx, allocated log pages %#lx, alloc data count %#lx, allocated data pages %#lx, free log count %#lx, freed log pages %#lx, free data count %#lx, freed data pages %#lx\n",
+			"Free list %d: alloc log count %lu, allocated log pages %#lx, alloc data count %lu, allocated data pages %#lx, free log count %lu, freed log pages %#lx, free data count %lu, freed data pages %#lx\n",
 			i, free_list->meta_list.alloc_count,
 			free_list->meta_list.alloc_pages,
 			free_list->data_list.alloc_count,

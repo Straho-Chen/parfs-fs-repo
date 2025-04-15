@@ -19,8 +19,7 @@ DEFINE_PER_CPU(struct nova_notifyer_array, completed_cnt);
 unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 				     struct mm_struct *mm, unsigned long uaddr,
 				     unsigned long kaddr, unsigned long bytes,
-				     int meta, int socket, int zero,
-				     long *issued_cnt,
+				     int socket, int zero, long *issued_cnt,
 				     struct nova_notifyer *completed_cnt,
 				     int wait_hint)
 {
@@ -64,6 +63,7 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 
 		if (ret != 0) {
 			NOVA_END_TIMING(pre_fault_r_t, prefault_time);
+			nova_warn("%s: prefault error: %d\n", __func__, ret);
 			goto out;
 		}
 	}
@@ -108,12 +108,13 @@ out:
 /* make this a global variable so that the compiler will not optimize it */
 int nova_no_optimize;
 
-unsigned int
-nova_do_write_delegation(struct nova_sb_info *sbi, struct mm_struct *mm,
-			 unsigned long uaddr, unsigned long kaddr,
-			 unsigned long bytes, int meta, int socket, int zero,
-			 int flush_cache, int sfence, long *issued_cnt,
-			 struct nova_notifyer *completed_cnt, int wait_hint)
+unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
+				      struct mm_struct *mm, unsigned long uaddr,
+				      unsigned long kaddr, unsigned long bytes,
+				      int socket, int zero, int flush_cache,
+				      int sfence, long *issued_cnt,
+				      struct nova_notifyer *completed_cnt,
+				      int wait_hint)
 {
 	struct nova_delegation_request request;
 	int ret = 0;

@@ -630,9 +630,11 @@ fail:
 	return -EIO;
 }
 
-static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
-				   unsigned long strp_nr, u8 *strp_ptr,
-				   int zero)
+/* Calculate the stripe csum by crc.
+ * In this case, we assume that csum is 32 bytes and block is 4K aligned.
+ */
+static int nova_stripe_csum_crc(struct super_block *sb, unsigned long strps,
+				unsigned long blocknr, u8 *strp_ptr, int zero)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	size_t strp_size = NOVA_STRIPE_SIZE;
@@ -642,6 +644,9 @@ static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 	void *csum_addr, *csum_addr1;
 	void *src_addr;
 	unsigned long irq_flags = 0;
+
+	nova_dbg_verbose("%s: blocknr: %#lx, strps: %#lx\n", __func__, blocknr,
+			 strps);
 
 	/*
 	 * 4K aligned data page has 8 stripes
@@ -672,8 +677,8 @@ static int nova_update_stripe_csum(struct super_block *sb, unsigned long strps,
 
 		src_addr = crc;
 copy:
-		csum_addr = nova_get_data_csum_addr(sb, strp_nr, 0);
-		csum_addr1 = nova_get_data_csum_addr(sb, strp_nr, 1);
+		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+		csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
 
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN * 8,
 				     &irq_flags);
@@ -694,7 +699,8 @@ copy:
 					  0);
 		}
 
-		strp_nr += 8;
+		// next page
+		blocknr++;
 		strps -= 8;
 		if (!zero)
 			strp_ptr += strp_size * 8;
@@ -702,125 +708,120 @@ copy:
 
 	/*
 	 * checksum for the remaining stripes
+	 * Cause remaining stripes should be less than 8, so thay are located on the same blocknr.
 	 */
-	for (strp = 0; strp < strps; strp++) {
-		if (zero)
-			csum = sbi->zero_csum[0];
-		else
-			csum = nova_crc32c(NOVA_INIT_CSUM, strp_ptr, strp_size);
+	nova_dbg_verbose("%s: last blocknr: %lx, last strps: %lu\n", __func__,
+			 blocknr, strps);
+	if (strps) {
+		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+		csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
+		for (strp = 0; strp < strps; strp++) {
+			if (zero)
+				csum = sbi->zero_csum[0];
+			else
+				csum = nova_crc32c(NOVA_INIT_CSUM, strp_ptr,
+						   strp_size);
 
-		csum = cpu_to_le32(csum);
-		csum_addr = nova_get_data_csum_addr(sb, strp_nr, 0);
-		csum_addr1 = nova_get_data_csum_addr(sb, strp_nr, 1);
+			csum = cpu_to_le32(csum);
 
-		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
-				     &irq_flags);
-		memcpy_to_pmem_nocache(csum_addr, &csum, NOVA_DATA_CSUM_LEN);
-		memcpy_to_pmem_nocache(csum_addr1, &csum, NOVA_DATA_CSUM_LEN);
-		nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
-				   &irq_flags);
+			nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
+					     &irq_flags);
+			memcpy_to_pmem_nocache(csum_addr, &csum,
+					       NOVA_DATA_CSUM_LEN);
+			memcpy_to_pmem_nocache(csum_addr1, &csum,
+					       NOVA_DATA_CSUM_LEN);
+			nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
+					   &irq_flags);
 
-		strp_nr += 1;
-		if (!zero)
-			strp_ptr += strp_size;
+			csum_addr += NOVA_DATA_CSUM_LEN;
+			csum_addr1 += NOVA_DATA_CSUM_LEN;
+
+			if (!zero)
+				strp_ptr += strp_size;
+		}
 	}
 
 	return 0;
 }
 
-/* Checksums a data block and writes the checksum values to nvmm.
- *
- * The block buffer to compute checksums should reside in dram (more trusted),
- * not in nvmm (less trusted).
- *
- * Checksum is calculated over a whole block and using xxhash.
- *
- * block:   block buffer with user data and possibly partial head-tail block
- *          - should be in kernel memory (dram) to avoid page faults
- * blocknr: destination nvmm block number where the block is written to
- *          - used to derive checksum value addresses
- * offset:  byte offset of user data in the block buffer
- * bytes:   number of user data bytes in the block buffer
+/* Calculate the stripe csum by crc.
+ * In this case, we assume that csum is 64 bytes and block is 4K aligned.
  */
-int nova_update_block_csum_xxhash(struct super_block *sb,
-				  struct nova_inode_info_header *sih, u8 *block,
-				  unsigned long blocknr, size_t offset,
-				  size_t bytes)
+static int nova_stripe_csum_xxhash(struct super_block *sb, unsigned long strps,
+				   unsigned long blocknr, u8 *strp_ptr,
+				   int zero)
 {
+	struct nova_sb_info *sbi = NOVA_SB(sb);
+	size_t strp_size = NOVA_STRIPE_SIZE;
+	unsigned long strp;
 	u64 csum;
 	void *csum_addr, *csum_addr1;
-	INIT_TIMING(block_csum_time);
+	void *src_addr;
+	unsigned long irq_flags = 0;
 
-	NOVA_START_TIMING(block_csum_t, block_csum_time);
+	/*
+	 * 4K aligned data page has one stripe
+	 * calculate checksum for one stripe at a time
+	 */
+	for (strp = 0; strp < strps; strp++) {
+		if (zero) {
+			src_addr = sbi->zero_csum;
+			goto copy;
+		}
 
-	// use xxhash to calculate the whole block
-	// Actually offset is always 0 and bytes is always the block size
-	csum = xxh64(block + offset, bytes, 0);
+		csum = xxh64(strp_ptr, strp_size, NOVA_INIT_CSUM);
 
-	// get the checksum address
-	csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
-	csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
+		src_addr = &csum;
+copy:
+		csum_addr = nova_get_data_csum_addr(sb, blocknr + strp, 0);
+		csum_addr1 = nova_get_data_csum_addr(sb, blocknr + strp, 1);
 
-	// copy
-	// not cache aligned, so we directly copy to pmem
-	nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, NULL);
-	memcpy_to_pmem_nocache(csum_addr, &csum, NOVA_DATA_CSUM_LEN);
-	memcpy_to_pmem_nocache(csum_addr1, &csum, NOVA_DATA_CSUM_LEN);
-	nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, NULL);
+		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
+				     &irq_flags);
+		if (support_clwb) {
+			memcpy(csum_addr, src_addr, NOVA_DATA_CSUM_LEN);
+			memcpy(csum_addr1, src_addr, NOVA_DATA_CSUM_LEN);
+		} else {
+			memcpy_to_pmem_nocache(csum_addr, src_addr,
+					       NOVA_DATA_CSUM_LEN);
+			memcpy_to_pmem_nocache(csum_addr1, src_addr,
+					       NOVA_DATA_CSUM_LEN);
+		}
+		nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
+				   &irq_flags);
 
-	NOVA_END_TIMING(block_csum_t, block_csum_time);
+		if (!zero)
+			strp_ptr += strp_size;
+	}
+	// combine to one flush
+	if (support_clwb) {
+		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+		csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
+		nova_flush_buffer(csum_addr, NOVA_DATA_CSUM_LEN * strps, 0);
+		nova_flush_buffer(csum_addr1, NOVA_DATA_CSUM_LEN * strps, 0);
+	}
+
 	return 0;
 }
 
-/* Checksums a sequence of contiguous file write data stripes within one block
- * and writes the checksum values to nvmm.
- *
- * The block buffer to compute checksums should reside in dram (more trusted),
- * not in nvmm (less trusted).
- *
- * Checksum is calculated over a whole stripe.
- *
- * block:   block buffer with user data and possibly partial head-tail block
- *          - should be in kernel memory (dram) to avoid page faults
- * blocknr: destination nvmm block number where the block is written to
- *          - used to derive checksum value addresses
- * offset:  byte offset of user data in the block buffer
- * bytes:   number of user data bytes in the block buffer
- * zero:    if the user data is all zero
+/*
+ * We calculate the checksum in a sripe. The stripe size is define in nova_def.h
+ * as NOVA_STRIPE_SIZE(SHIFT).
  */
-int nova_update_block_csum(struct super_block *sb,
-			   struct nova_inode_info_header *sih, u8 *block,
-			   unsigned long blocknr, size_t offset, size_t bytes,
-			   int zero)
+int nova_update_block_csum(struct super_block *sb, unsigned long bytes,
+			   unsigned long start_blknr, u8 *strp_ptr, int zero)
 {
-	u8 *strp_ptr;
-	size_t blockoff;
-	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned int strp_index, strp_offset;
-	unsigned long strps, strp_nr;
-	INIT_TIMING(block_csum_time);
-
-	NOVA_START_TIMING(block_csum_t, block_csum_time);
-	blockoff = nova_get_block_off(sb, blocknr, sih->i_blk_type, 0);
-
-	/* strp_index: stripe index within the block buffer
-	 * strp_offset: stripe offset within the block buffer
-	 *
-	 * strps: number of stripes touched by user data (need new checksums)
-	 * strp_nr: global stripe number converted from blocknr and offset
-	 * strp_ptr: pointer to stripes in the block buffer
-	 */
-	strp_index = offset >> strp_shift;
-	strp_offset = offset - (strp_index << strp_shift);
-
-	strps = ((strp_offset + bytes - 1) >> strp_shift) + 1;
-	strp_nr = (blockoff + offset) >> strp_shift;
-	strp_ptr = block + (strp_index << strp_shift);
-
-	nova_update_stripe_csum(sb, strps, strp_nr, strp_ptr, zero);
-
-	NOVA_END_TIMING(block_csum_t, block_csum_time);
-
+	if (!IS_ALIGNED(bytes, NOVA_STRIPE_SIZE)) {
+		nova_err(sb, "%s: bytes is not aligned with stripe\n",
+			 __func__);
+		return -EINVAL;
+	}
+	unsigned long strps = bytes >> NOVA_STRIPE_SHIFT;
+#if NOVA_XXHASH_CSUM
+	return nova_stripe_csum_xxhash(sb, strps, start_blknr, strp_ptr, zero);
+#else
+	return nova_stripe_csum_crc(sb, strps, start_blknr, strp_ptr, zero);
+#endif
 	return 0;
 }
 
@@ -829,50 +830,42 @@ int nova_update_pgoff_csum(struct super_block *sb,
 			   struct nova_file_write_entry *entry,
 			   unsigned long pgoff, int zero)
 {
+	u64 blocknr;
 	void *dax_mem = NULL;
-	u64 blockoff;
-	size_t strp_size = NOVA_STRIPE_SIZE;
-	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned long strp_nr;
-	int count;
 
-	count = blk_type_to_size[sih->i_blk_type] / strp_size;
+	blocknr = get_nvmm(sb, sih, entry, pgoff);
 
-	blockoff = nova_find_nvmm_block(sb, sih, entry, pgoff);
+	dax_mem = nova_get_virt_addr_from_offset(
+		sb, nova_get_block_off(sb, blocknr, sih->i_blk_type, 0), 0);
 
-	/* Truncated? */
-	if (blockoff == 0)
-		return 0;
+	nova_dbg_verbose("%s: find block: %#llx\n", __func__, blocknr);
 
-	dax_mem = nova_get_virt_addr_from_offset(sb, blockoff, 0);
-
-	strp_nr = blockoff >> strp_shift;
-
-	nova_update_stripe_csum(sb, count, strp_nr, dax_mem, zero);
+	nova_update_block_csum(sb, nova_inode_blk_size(sih), blocknr, dax_mem,
+			       zero);
 
 	return 0;
 }
 
 /* Verify checksums of requested data bytes starting from offset of blocknr.
  *
- * Only a whole stripe can be checksum verified.
+ * Only a whole block can be checksum verified.
+ * Because we only support cow, so every modification of data will
+ * generate a new block.
  *
  * blocknr: container blocknr for the first stripe to be verified
- * offset:  byte offset within the block associated with blocknr
  * bytes:   number of contiguous bytes to be verified starting from offset
  *
  * return: true or false
  */
 bool nova_verify_data_csum(struct super_block *sb,
 			   struct nova_inode_info_header *sih,
-			   unsigned long blocknr, size_t offset, size_t bytes)
+			   unsigned long blocknr, size_t bytes)
 {
-	void *blockptr, *strp_ptr;
-	size_t blockoff, blocksize = nova_inode_blk_size(sih);
+	void *blockptr;
+	size_t blockoff;
 	size_t strp_size = NOVA_STRIPE_SIZE;
 	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned int strp_index;
-	unsigned long strp, strps, strp_nr;
+	unsigned long strp, strps_per_block, blocks, block;
 	void *strip = NULL;
 	u32 csum_calc, csum_nvmm0, csum_nvmm1;
 	u32 *csum_addr0, *csum_addr1;
@@ -886,130 +879,106 @@ bool nova_verify_data_csum(struct super_block *sb,
 	/* Only a whole stripe can be checksum verified.
 	 * strps: # of stripes to be checked since offset.
 	 */
-	strps = ((offset + bytes - 1) >> strp_shift) - (offset >> strp_shift) +
-		1;
+	blocks = ((bytes - 1) >> PAGE_SHIFT) + 1;
+	strps_per_block = PAGE_SIZE >> strp_shift;
 
-	blockoff = nova_get_block_off(sb, blocknr, sih->i_blk_type, 0);
-	blockptr = nova_get_virt_addr_from_offset(sb, blockoff, 0);
+	for (block = 0; block < blocks; block++) {
+		blockoff = nova_get_block_off(sb, blocknr + block,
+					      sih->i_blk_type, 0);
+		blockptr = nova_get_virt_addr_from_offset(sb, blockoff, 0);
 
-	/* strp_nr: global stripe number converted from blocknr and offset
-	 * strp_ptr: virtual address of the 1st stripe
-	 * strp_index: stripe index within a block
-	 */
-	strp_nr = (blockoff + offset) >> strp_shift;
-	strp_index = offset >> strp_shift;
-	strp_ptr = blockptr + (strp_index << strp_shift);
-
-	strip = kmalloc(strp_size, GFP_KERNEL);
-	if (strip == NULL)
-		return false;
-
-	match = true;
-	for (strp = 0; strp < strps; strp++) {
-		csum_addr0 = nova_get_data_csum_addr(sb, strp_nr, 0);
-		csum_nvmm0 = le32_to_cpu(*csum_addr0);
-
-		csum_addr1 = nova_get_data_csum_addr(sb, strp_nr, 1);
-		csum_nvmm1 = le32_to_cpu(*csum_addr1);
-
-		error = memcpy_mcsafe(strip, strp_ptr, strp_size);
-		if (error < 0) {
-			nova_dbg("%s: media error in data strip detected!\n",
-				 __func__);
+		strip = kmalloc(strp_size, GFP_KERNEL);
+		if (strip == NULL) {
+			nova_err(sb, "%s: kmalloc failed\n", __func__);
 			match = false;
-		} else {
-			csum_calc =
-				nova_crc32c(NOVA_INIT_CSUM, strip, strp_size);
-			match = (csum_calc == csum_nvmm0) ||
-				(csum_calc == csum_nvmm1);
+			goto out;
 		}
 
-		if (!match) {
-			/* Getting here, data is considered corrupted.
-			 *
-			 * if: csum_nvmm0 == csum_nvmm1
-			 *     both csums good, run data recovery
-			 * if: csum_nvmm0 != csum_nvmm1
-			 *     at least one csum is corrupted, also need to run
-			 *     data recovery to see if one csum is still good
-			 */
-			nova_dbg(
-				"%s: nova data corruption detected! inode %lu, strp %#lx of %#lx, block offset %#lx, stripe nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
-				__func__, sih->ino, strp, strps, blockoff,
-				strp_nr, csum_calc, csum_nvmm0, csum_nvmm1);
+		match = true;
+		for (strp = 0; strp < strps_per_block; strp++) {
+			csum_addr0 = nova_get_data_csum_addr(sb, blocknr, 0) +
+				     strp * NOVA_DATA_CSUM_LEN;
+			csum_nvmm0 = le32_to_cpu(*csum_addr0);
 
-			if (data_parity == 0) {
+			csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1) +
+				     strp * NOVA_DATA_CSUM_LEN;
+			csum_nvmm1 = le32_to_cpu(*csum_addr1);
+
+			error = memcpy_mcsafe(strip, blockptr, strp_size);
+			if (error < 0) {
 				nova_dbg(
-					"%s: no data redundancy available, can not repair data corruption!\n",
+					"%s: media error in data strip detected!\n",
 					__func__);
-				break;
+				match = false;
+				goto out;
+			} else {
+				csum_calc = nova_crc32c(NOVA_INIT_CSUM, strip,
+							strp_size);
+				match = (csum_calc == csum_nvmm0) ||
+					(csum_calc == csum_nvmm1);
 			}
 
-			nova_dbg("%s: nova data recovery begins\n", __func__);
+			if (!match) {
+				/* Getting here, data is considered corrupted.
+				 *
+				 * if: csum_nvmm0 == csum_nvmm1
+				 *     both csums good, run data recovery
+				 * if: csum_nvmm0 != csum_nvmm1
+				 *     at least one csum is corrupted, also need to run
+				 *     data recovery to see if one csum is still good
+				 */
+				nova_dbg(
+					"%s: nova data corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
+					__func__, sih->ino, strp, block, blocks,
+					blockoff, blocknr, csum_calc,
+					csum_nvmm0, csum_nvmm1);
 
-			error = nova_restore_data(sb, blocknr, strp_index,
-						  strip, error, csum_nvmm0,
-						  csum_nvmm1, &csum_calc);
-			if (error) {
-				nova_dbg("%s: nova data recovery fails!\n",
-					 __func__);
-				dump_stack();
-				break;
+				// data corruption, roll back to old block on caller
+				goto out;
 			}
 
-			/* Getting here, data corruption is repaired and the
-			 * good checksum is stored in csum_calc.
-			 */
-			nova_dbg("%s: nova data recovery success!\n", __func__);
-			match = true;
-		}
-
-		/* Getting here, match must be true, otherwise already breaking
+			/* Getting here, match must be true, otherwise already breaking
 		 * out the for loop. Data is known good, either it's good in
 		 * nvmm, or good after recovery.
 		 */
-		if (csum_nvmm0 != csum_nvmm1) {
-			/* Getting here, data is known good but one checksum is
+			if (csum_nvmm0 != csum_nvmm1) {
+				/* Getting here, data is known good but one checksum is
 			 * considered corrupted.
 			 */
-			nova_dbg(
-				"%s: nova checksum corruption detected! inode %lu, strp %#lx of %#lx, block offset %#lx, stripe nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
-				__func__, sih->ino, strp, strps, blockoff,
-				strp_nr, csum_calc, csum_nvmm0, csum_nvmm1);
+				nova_dbg(
+					"%s: nova checksum corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
+					__func__, sih->ino, strp, block, blocks,
+					blockoff, blocknr, csum_calc,
+					csum_nvmm0, csum_nvmm1);
 
-			nova_memunlock_range(sb, csum_addr0, NOVA_DATA_CSUM_LEN,
-					     &irq_flags);
-			if (csum_nvmm0 != csum_calc) {
-				csum_nvmm0 = cpu_to_le32(csum_calc);
-				memcpy_to_pmem_nocache(csum_addr0, &csum_nvmm0,
-						       NOVA_DATA_CSUM_LEN);
+				nova_memunlock_range(sb, csum_addr0,
+						     NOVA_DATA_CSUM_LEN,
+						     &irq_flags);
+				if (csum_nvmm0 != csum_calc) {
+					csum_nvmm0 = cpu_to_le32(csum_calc);
+					memcpy_to_pmem_nocache(
+						csum_addr0, &csum_nvmm0,
+						NOVA_DATA_CSUM_LEN);
+				}
+
+				if (csum_nvmm1 != csum_calc) {
+					csum_nvmm1 = cpu_to_le32(csum_calc);
+					memcpy_to_pmem_nocache(
+						csum_addr1, &csum_nvmm1,
+						NOVA_DATA_CSUM_LEN);
+				}
+				nova_memlock_range(sb, csum_addr0,
+						   NOVA_DATA_CSUM_LEN,
+						   &irq_flags);
+
+				nova_dbg(
+					"%s: nova checksum corruption repaired!\n",
+					__func__);
 			}
-
-			if (csum_nvmm1 != csum_calc) {
-				csum_nvmm1 = cpu_to_le32(csum_calc);
-				memcpy_to_pmem_nocache(csum_addr1, &csum_nvmm1,
-						       NOVA_DATA_CSUM_LEN);
-			}
-			nova_memlock_range(sb, csum_addr0, NOVA_DATA_CSUM_LEN,
-					   &irq_flags);
-
-			nova_dbg("%s: nova checksum corruption repaired!\n",
-				 __func__);
-		}
-
-		/* Getting here, the data stripe and both checksum copies are
-		 * known good. Continue to the next stripe.
-		 */
-		strp_nr += 1;
-		strp_index += 1;
-		strp_ptr += strp_size;
-		if (strp_index == (blocksize >> strp_shift)) {
-			blocknr += 1;
-			blockoff += blocksize;
-			strp_index = 0;
 		}
 	}
 
+out:
 	if (strip != NULL)
 		kfree(strip);
 
@@ -1023,51 +992,39 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 {
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
-	unsigned long offset = newsize & (nova_inode_blk_size(sih) - 1);
 	unsigned long pgoff, length;
-	u64 nvmm;
-	char *nvmm_addr, *strp_addr, *tail_strp = NULL;
-	unsigned int strp_size = NOVA_STRIPE_SIZE;
-	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned int strp_index, strp_offset;
-	unsigned long strps, strp_nr;
+	u64 nvmm, nvmm_off;
+	char *nvmm_addr, *block;
+	int ret = 0;
 
-	length = nova_inode_blk_size(sih) - offset;
 	pgoff = newsize >> nova_inode_blk_shift(sih);
 
-	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
+	nvmm = get_nvmm(sb, sih, NULL, pgoff);
 	if (nvmm == 0)
 		return -EFAULT;
+	nvmm_off = nova_get_block_off(sb, nvmm, sih->i_blk_type, 0);
 
 	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
 
-	strp_index = offset >> strp_shift;
-	strp_offset = offset - (strp_index << strp_shift);
+	length = nova_inode_blk_size(sih);
 
-	strps = ((strp_offset + length - 1) >> strp_shift) + 1;
-	strp_nr = (nvmm + offset) >> strp_shift;
-	strp_addr = nvmm_addr + (strp_index << strp_shift);
-
-	if (strp_offset > 0) {
-		/* Copy to DRAM to catch MCE. */
-		tail_strp = kzalloc(strp_size, GFP_KERNEL);
-		if (tail_strp == NULL)
-			return -ENOMEM;
-
-		if (memcpy_mcsafe(tail_strp, strp_addr, strp_offset) < 0)
-			return -EIO;
-
-		nova_update_stripe_csum(sb, 1, strp_nr, tail_strp, 0);
-
-		strps--;
-		strp_nr++;
+	/* Copy to DRAM to catch MCE. */
+	block = kmalloc(length, GFP_KERNEL);
+	if (block == NULL) {
+		ret = -ENOMEM;
+		goto out;
 	}
 
-	if (strps > 0)
-		nova_update_stripe_csum(sb, strps, strp_nr, NULL, 1);
+	if (memcpy_mcsafe(block, nvmm_addr, length) < 0) {
+		ret = -EIO;
+		goto out;
+	}
 
-	if (tail_strp != NULL)
-		kfree(tail_strp);
+	nova_update_block_csum(sb, length, nvmm, nvmm_addr, 0);
 
-	return 0;
+out:
+	if (block != NULL)
+		kfree(block);
+
+	return ret;
 }

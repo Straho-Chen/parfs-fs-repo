@@ -177,14 +177,9 @@ static inline int memcpy_to_pmem_avx_nocache(void *dst_addr,
 {
 	int ret;
 
-	if ((unsigned long)src_ubuf_copy & 0x3f) {
-		nova_warn("src_ubuf_copy %p unaligned to 64 bytes\n",
-			  src_ubuf_copy);
-		return -1;
-	}
-
 	// check 64-byte alignment
-	if (((unsigned long)dst_addr & 0x3f) == 0) {
+	if (IS_ALIGNED((u64)dst_addr, 64) &&
+	    IS_ALIGNED((u64)src_ubuf_copy, 64)) {
 		size_t i;
 
 		kernel_fpu_begin();
@@ -659,7 +654,8 @@ static inline u64 nova_find_nvmm_block(struct super_block *sb,
 		return 0;
 
 	nvmm = get_nvmm(sb, sih, entryc, blocknr);
-	return nvmm << PAGE_SHIFT;
+	nova_dbg_verbose("%s: get nvmm blocknr: %#lx\n", __func__, nvmm);
+	return nova_get_block_off(sb, nvmm, sih->i_blk_type, 0);
 }
 
 static inline unsigned long nova_get_blocknr(struct super_block *sb, u64 block,
@@ -889,11 +885,7 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 	u64 strp_block_off;
 	int BLOCK_SHIFT;
 
-#if NOVA_XXHASH_CSUM
-	BLOCK_SHIFT = PAGE_SHIFT;
-#else
 	BLOCK_SHIFT = PAGE_SHIFT - NOVA_STRIPE_SHIFT;
-#endif
 
 	if (!data_csum) {
 		nova_dbg("%s: Data checksum is disabled!\n", __func__);
@@ -903,8 +895,8 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 	// blocknr index to a data block, and we calculate the meta csum addr here.
 	cpu = nova_block_to_cpu(sbi, blocknr, 0);
 
-	// nova_dbg_verbose("%s: blocknr: %#llx, locate on cpu: %d\n", __func__,
-	// 		 blocknr, cpu);
+	nova_dbg_trans("%s: blocknr: %#llx, locate on cpu: %d\n", __func__,
+		       blocknr, cpu);
 
 	if (cpu >= sbi->cpus) {
 		nova_dbg("%s: Invalid blocknr %#llx\n", __func__, blocknr);
@@ -929,8 +921,8 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 
 	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff, 1);
 
-	// nova_dbg_verbose("%s: data csum addr: %#llx\n", __func__,
-	// 		 (u64)data_csum_addr);
+	nova_dbg_trans("%s: data csum addr: %#llx\n", __func__,
+		       (u64)data_csum_addr);
 
 	return data_csum_addr;
 }
@@ -987,22 +979,16 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 	INIT_TIMING(memcpy_time);
 	INIT_TIMING(delegation_time);
 
-	// if (meta){
-	// 	nova_dbg_verbose("%s: meta kmem dest: %#llx\n", __func__, (u64)kmem_dest);
-	// } else {
-	// 	nova_dbg_verbose("%s: data kmem dest: %#llx\n", __func__, (u64)kmem_dest);
-	// }
-
 	nova_memunlock_range(sb, kmem_dest, bytes, &irq_flags);
 	if (bytes < NOVA_WRITE_DELEGATION_LIMIT) {
-		nova_dbg_verbose("less than delegation limit\n");
+		nova_dbg_delegation("less than delegation limit\n");
 		NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
 		if (zero) {
-			nova_dbg_verbose("do memset_nt to fill zero\n");
+			nova_dbg_delegation("do memset_nt to fill zero\n");
 			memset_nt(kmem_dest, 0, bytes);
 			left = 0;
 		} else {
-			nova_dbg_verbose(
+			nova_dbg_delegation(
 				"do memcpy_to_pmem_nocache from %#lx to %#lx\n",
 				(unsigned long)kubuf_src,
 				(unsigned long)kmem_dest);
@@ -1011,12 +997,12 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 		}
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
-		nova_dbg_verbose("do delegation\n");
+		nova_dbg_delegation("do delegation\n");
 		NOVA_START_TIMING(do_delegation_w_t, delegation_time);
 		left = nova_do_write_delegation(NOVA_SB(sb), current->mm,
 						(unsigned long)kubuf_src,
 						(unsigned long)kmem_dest, bytes,
-						meta, socket, zero, flush_cache,
+						socket, zero, flush_cache,
 						sfence, issued_cnt,
 						completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_w_t, delegation_time);
@@ -1040,28 +1026,28 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 	INIT_TIMING(delegation_time);
 
 	if (bytes < NOVA_READ_DELEGATION_LIMIT) {
-		nova_dbg_verbose("less than delegation limit\n");
+		nova_dbg_delegation("less than delegation limit\n");
 		NOVA_START_TIMING(memcpy_r_nvmm_t, memcpy_time);
 
 		if (!zero) {
-			nova_dbg_verbose(
+			nova_dbg_delegation(
 				"do __copy_to_user from %#lx to %#lx\n",
 				(unsigned long)kmem_src,
 				(unsigned long)ubuf_dest);
 			left = __copy_to_user(ubuf_dest, kmem_src, bytes);
 		} else {
-			nova_dbg_verbose("do __clear_user to fill zero\n");
+			nova_dbg_delegation("do __clear_user to fill zero\n");
 			left = __clear_user(ubuf_dest, bytes);
 		}
 
 		NOVA_END_TIMING(memcpy_r_nvmm_t, memcpy_time);
 	} else {
-		nova_dbg_verbose("do delegation\n");
+		nova_dbg_delegation("do delegation\n");
 		NOVA_START_TIMING(do_delegation_r_t, delegation_time);
 		left = nova_do_read_delegation(NOVA_SB(sb), current->mm,
 					       (unsigned long)ubuf_dest,
-					       (unsigned long)kmem_src, meta,
-					       bytes, socket, zero, issued_cnt,
+					       (unsigned long)kmem_src, bytes,
+					       socket, zero, issued_cnt,
 					       completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_r_t, delegation_time);
 	}
@@ -1082,14 +1068,8 @@ int nova_recovery(struct super_block *sb);
 
 /* checksum.c */
 void nova_update_entry_csum(void *entry);
-int nova_update_block_csum_xxhash(struct super_block *sb,
-				  struct nova_inode_info_header *sih, u8 *block,
-				  unsigned long blocknr, size_t offset,
-				  size_t bytes);
-int nova_update_block_csum(struct super_block *sb,
-			   struct nova_inode_info_header *sih, u8 *block,
-			   unsigned long blocknr, size_t offset, size_t bytes,
-			   int zero);
+int nova_update_block_csum(struct super_block *sb, unsigned long bytes,
+			   unsigned long start_blknr, u8 *strp_ptr, int zero);
 int nova_update_alter_entry(struct super_block *sb, void *entry);
 int nova_copy_inode(struct super_block *sb, u64 ino, u64 pi_addr,
 		    u64 alter_pi_addr, struct nova_inode *pic);
@@ -1102,7 +1082,7 @@ int nova_update_pgoff_csum(struct super_block *sb,
 			   unsigned long pgoff, int zero);
 bool nova_verify_data_csum(struct super_block *sb,
 			   struct nova_inode_info_header *sih,
-			   unsigned long blocknr, size_t offset, size_t bytes);
+			   unsigned long blocknr, size_t bytes);
 int nova_update_truncated_block_csum(struct super_block *sb,
 				     struct inode *inode, loff_t newsize);
 
@@ -1140,11 +1120,12 @@ int nova_check_overlap_vmas(struct super_block *sb,
 int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 				 loff_t pos, size_t count,
 				 unsigned long blocknr, void *ubuf_copy,
-				 int *head, int *tail, long *issued_cnt,
+				 int *head, int *tail, int *head_eq_tail,
+				 long *issued_cnt,
 				 struct nova_notifyer *completed_cnt);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 			   loff_t pos, size_t count, char *ubuf_copy,
-			   unsigned long blocknr, bool inplace);
+			   unsigned long blocknr);
 ssize_t nova_inplace_file_write(struct file *filp, const char __user *buf,
 				size_t len, loff_t *ppos);
 ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,

@@ -186,7 +186,7 @@ static int nova_reset_csum_parity_page(struct super_block *sb,
 				       struct nova_file_write_entry *entry,
 				       unsigned long pgoff, int zero)
 {
-	nova_dbg_verbose("%s: update page off %#lx\n", __func__, pgoff);
+	nova_dbg_verbose("%s: update page off %lu\n", __func__, pgoff);
 
 	if (data_csum)
 		nova_update_pgoff_csum(sb, sih, entry, pgoff, zero);

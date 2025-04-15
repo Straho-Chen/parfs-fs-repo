@@ -1646,6 +1646,12 @@ int nova_recovery(struct super_block *sb)
 	/* initialize free list info */
 	nova_init_blockmap(sb, 1);
 
+	/*
+	 * Cause we use data csum, we need to check the data csum of last write entry of every file.
+	 * If failed, invaild the last entry and roll back to the previous entry (previous must be vaild) and remove the last one.
+	 * If successful, keep the last write entry.
+	 */
+	// TODO: check the data csum of last write entry of every file.
 	value = nova_try_normal_recovery(sb);
 	if (value) {
 		nova_dbg("NOVA: Normal shutdown\n");

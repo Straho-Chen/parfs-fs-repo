@@ -268,7 +268,11 @@ static inline void nova_flush_buffer(void *buf, uint32_t len, bool fence)
  */
 #define POISON_RADIUS (512)
 #define POISON_MASK (~(POISON_RADIUS - 1))
+#if NOVA_XXHASH_CSUM
+#define NOVA_STRIPE_SHIFT (PAGE_SHIFT)
+#else
 #define NOVA_STRIPE_SHIFT (9) /* size should be no less than PR_SIZE */
+#endif
 #define NOVA_STRIPE_SIZE (1 << NOVA_STRIPE_SHIFT)
 
 DECLARE_PER_CPU(u32, seed);

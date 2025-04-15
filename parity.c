@@ -149,7 +149,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	size_t csum_size = NOVA_DATA_CSUM_LEN;
 	size_t strp_size = NOVA_STRIPE_SIZE;
 	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
-	unsigned long blocksize = nova_inode_blk_size(sih);
+	unsigned long strp_nr, blockoff, blocksize = nova_inode_blk_size(sih);
 	void *nvmmptr, *nvmmptr1;
 	u32 crc[8];
 	u64 qwd[8], *parity = NULL;
@@ -162,6 +162,9 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	INIT_TIMING(block_csum_parity_time);
 
 	NOVA_STATS_ADD(block_csum_parity, 1);
+
+	blockoff = nova_get_block_off(sb, blocknr, sih->i_blk_type, 0);
+	strp_nr = blockoff >> strp_shift;
 
 	strp_offset = offset & (strp_size - 1);
 	num_strps = ((strp_offset + bytes - 1) >> strp_shift) + 1;
@@ -221,8 +224,8 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			crc[6] = cpu_to_le32((u32)acc[6]);
 			crc[7] = cpu_to_le32((u32)acc[7]);
 
-			nvmmptr = nova_get_data_csum_addr(sb, blocknr, 0);
-			nvmmptr1 = nova_get_data_csum_addr(sb, blocknr, 1);
+			nvmmptr = nova_get_data_csum_addr(sb, strp_nr, 0);
+			nvmmptr1 = nova_get_data_csum_addr(sb, strp_nr, 1);
 			/* Here is small size writes. We don't call delegation write here. */
 			nova_memunlock_range(sb, nvmmptr, csum_size * 8,
 					     &irq_flags);
@@ -258,8 +261,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	}
 
 	if (data_csum > 0 && !unroll_csum)
-		nova_update_block_csum(sb, sih, block, blocknr, offset, bytes,
-				       0);
+		nova_update_block_csum(sb, bytes, blocknr, block, 0);
 	if (data_parity > 0 && !unroll_parity)
 		nova_update_block_parity(sb, block, blocknr, 0);
 
