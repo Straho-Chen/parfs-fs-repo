@@ -62,6 +62,7 @@ static int pmem_ar_create(unsigned long arg)
 		pmem_ar_dev.bdevs[i] =
 			blkdev_get_by_path(path, FMODE_READ | FMODE_WRITE,
 					   &pmem_ar_dev, &fs_holder_ops);
+		pmem_ar_dev.numa_node[i] = pmem_arg_info.numa_node[i];
 
 		if (IS_ERR(pmem_ar_dev.bdevs[i])) {
 			printk("ERROR: Cannot get blk dev: %s. Abort.\n", path);

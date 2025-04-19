@@ -86,7 +86,7 @@ static unsigned long user_virt_addr_to_phy_addr(struct mm_struct *mm,
      * do a printk here for the moment.
      */
 
-		nova_warn("pmd_large!\n");
+		nova_dbg_delegation("pmd_large!\n");
 
 		return (phys_page_addr | offset);
 	}
@@ -237,20 +237,10 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 		nova_dbg_delegation("%s: zero, flush_cache:%d\n", __func__,
 				    flush_cache);
 		NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
-		for (i = 0; i < frag * NOVA_AGENT_FRAG_SIZE;
-		     i += NOVA_AGENT_FRAG_SIZE) {
-			if (flush_cache)
-				memset_nt((void *)(kaddr + i), 0,
-					  NOVA_AGENT_FRAG_SIZE);
-			else
-				memset((void *)(kaddr + i), 0,
-				       NOVA_AGENT_FRAG_SIZE);
-		}
-		// last
 		if (flush_cache)
-			memset_nt((void *)(kaddr + i), 0, bytes - i);
+			memset_nt((void *)kaddr, 0, bytes);
 		else
-			memset((void *)(kaddr + i), 0, bytes - i);
+			memset((void *)kaddr, 0, bytes);
 
 		NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);
 		goto out;
@@ -304,10 +294,14 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 		}
 	}
 	// last
-	if (memcpy_to_pmem_avx_nocache((void *)(kaddr + i), (void *)(uaddr + i),
-				       bytes - i)) {
-		nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
-		goto out;
+	if (bytes - i) {
+		if (memcpy_to_pmem_avx_nocache((void *)(kaddr + i),
+					       (void *)(uaddr + i),
+					       bytes - i)) {
+			nova_warn(
+				"memcpy_to_pmem_avx_nocache failed to copy all\n");
+			goto out;
+		}
 	}
 
 #endif
@@ -317,17 +311,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 out:
 	atomic_inc(notify_cnt);
 	return;
-}
-
-static inline int agent_cal_frag(int socket)
-{
-	int frag;
-	int filled_ring = nova_filled_ring_num(socket);
-	size_t req_size = NOVA_DEFALUT_BLOCK_SIZE * filled_ring;
-	frag = (req_size / NOVA_NVM_XP_BUFFER_SIZE) + 1;
-	//  frag should be the power of 2
-	frag = roundup_pow_of_two(frag);
-	return frag;
 }
 
 static int agent_func(void *arg)

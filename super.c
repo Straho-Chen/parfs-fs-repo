@@ -176,6 +176,12 @@ static int nova_get_nvmm_info(struct super_block *sb, struct nova_sb_info *sbi)
 	sbi->sockets = pmem_ar_dev.numa_nodes;
 	nova_info("sockets: %d\n", sbi->sockets);
 
+	for (i = 0; i < pmem_ar_dev.elem_num; i++) {
+		nova_dbg("%s: pmem %d socket %d\n", __func__, i,
+			 pmem_ar_dev.numa_node[i]);
+	}
+
+
 	return 0;
 }
 
@@ -595,7 +601,6 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 {
 	unsigned long blocksize;
 	struct nova_inode *root_i, *pi;
-	struct nova_inode root_ic;
 	struct nova_super_block *super;
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_update update;
@@ -651,7 +656,7 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 		return ERR_PTR(-EINVAL);
 
 	sbi->nova_sb->s_size = cpu_to_le64(size);
-	sbi->nova_sb->s_blocksize = cpu_to_le32(blocksize);
+	sbi->nova_sb->s_blocksize = cpu_to_le32(PAGE_SIZE);
 	sbi->nova_sb->s_magic = cpu_to_le32(NOVA_SUPER_MAGIC);
 	sbi->nova_sb->s_epoch_id = 0;
 	sbi->nova_sb->s_metadata_csum = metadata_csum;
@@ -884,9 +889,15 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 		goto out;
 	}
 
-	for (i = 0; i < 8; i++)
+#if NOVA_XXHASH_CSUM
+	*((u64 *)sbi->zero_csum) =
+		xxh64(sbi->zeroed_page, PAGE_SIZE, NOVA_INIT_CSUM);
+#else
+	for (i = 0; i < 8; i++) {
 		sbi->zero_csum[i] = nova_crc32c(NOVA_INIT_CSUM,
 						sbi->zeroed_page, strp_size);
+	}
+#endif
 	sbi->zero_parity = kzalloc(strp_size, GFP_KERNEL);
 
 	if (!sbi->zero_parity) {

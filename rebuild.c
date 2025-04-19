@@ -393,6 +393,145 @@ static void nova_rebuild_handle_write_entry(
 	sih->i_size = le64_to_cpu(reb->i_size);
 }
 
+static inline struct nova_file_write_entry *
+nova_find_prev_entry(struct super_block *sb, struct nova_inode_info_header *sih,
+		     u64 curr)
+{
+	struct nova_file_write_entry *entry = NULL;
+	u64 prev_curr, tmp = 0;
+
+	if (curr & PAGE_MASK) {
+		// not head
+		prev_curr = curr - sizeof(struct nova_file_write_entry);
+		entry = (struct nova_file_write_entry
+				 *)(nova_get_virt_addr_from_offset(
+			sb, prev_curr, 1));
+	} else {
+		// head
+		while (tmp != curr) {
+			if (goto_next_page(sb, tmp)) {
+				sih->log_pages++;
+				tmp = next_log_page(sb, tmp);
+			}
+			prev_curr = tmp;
+			tmp += sizeof(struct nova_file_write_entry);
+		}
+		entry = (struct nova_file_write_entry
+				 *)(nova_get_virt_addr_from_offset(
+			sb, prev_curr, 1));
+	}
+
+	return entry;
+}
+
+static int nova_check_tail_file_entry(struct super_block *sb,
+				      struct nova_inode_info_header *sih,
+				      u64 tail_curr)
+{
+	struct nova_file_write_entry *entry;
+	struct nova_file_write_entry tail_entryc, previous_entryc;
+	unsigned long nvmm;
+	unsigned long index;
+	struct nova_inode *pi, *alter_pi;
+	int i, ret = 0;
+
+	// tail entry
+	entry = nova_find_prev_entry(sb, sih, tail_curr);
+	if (!entry) {
+		nova_err(sb, "%s: entry is NULL\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+	if (data_csum == 0) {
+		nova_warn(
+			"nova not enable data checksum, skip tail entry dcsum check\n");
+		goto out;
+	}
+	if (!nova_get_entry_copy(sb, entry, &tail_entryc)) {
+		nova_err(sb, "%s: get entry copy failed\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	// check the data csum of the tail entry
+	for (i = 0; i < tail_entryc.num_pages; i++) {
+		index = tail_entryc.pgoff + i;
+		nvmm = get_nvmm(sb, sih, entry, index);
+		// data block can be 0
+		ret = nova_verify_data_csum(sb, sih, nvmm,
+					    nova_inode_blk_size(sih));
+		if (ret) {
+			nova_dbg_verbose(
+				"%s: tail file entry data csum missmatch, roll back!\n",
+				__func__);
+			goto restore;
+		}
+	}
+	// all data csum match, no inconsistency, no data miss.
+	nova_dbg_verbose("%s: tail file entry doesn't have data miss\n",
+			 __func__);
+	goto out;
+
+restore:
+	// data csum missmatch, roll back to the previous entry
+	// move to previous entry
+	tail_curr -= sizeof(struct nova_file_write_entry);
+	entry = nova_find_prev_entry(sb, sih, tail_curr);
+	if (!entry) {
+		nova_err(sb, "%s: previous entry is NULL\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+	if (!nova_get_entry_copy(sb, entry, &previous_entryc)) {
+		nova_err(sb, "%s: get entry copy failed\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+	// update inode
+	pi = nova_get_inode_by_ino(sb, sih->ino);
+	if (!pi) {
+		nova_err(sb, "%s: get inode failed\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+	nova_update_tail(pi, tail_curr, 0);
+	pi->i_size = previous_entryc.size;
+	nova_flush_buffer(pi, sizeof(struct nova_inode), 0);
+	// update alter log head and tail
+	alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
+		sb, sih->alter_pi_addr, 1);
+	if (!alter_pi) {
+		nova_err(sb, "%s: get alter inode failed\n", __func__);
+		ret = -EINVAL;
+		goto out;
+	}
+	memcpy(alter_pi, pi, sizeof(struct nova_inode));
+	nova_flush_buffer(alter_pi, sizeof(struct nova_inode), 0);
+	memset(nova_get_virt_addr_from_offset(sb, tail_curr, 1), 0,
+	       sizeof(struct nova_file_write_entry));
+	sih->log_head = pi->log_head;
+	sih->log_tail = pi->log_tail;
+
+	// vaild old entry from snapshot
+
+	// free crash data page
+	for (i = 0; i < tail_entryc.num_pages; i++) {
+		index = tail_entryc.pgoff + i;
+		nvmm = get_nvmm(sb, sih, entry, index);
+		nova_free_data_blocks(sb, sih, nvmm, 1);
+	}
+
+	ret = 0;
+
+out:
+	return ret;
+}
+
+/*
+ * Cause we use data csum, we need to check the data csum of last write entry of every file when crash.
+ * If failed, invaild the last entry and roll back to the previous entry (previous must be vaild) and remove the last one.
+ * If successful, keep the last write entry.
+ */
 static int nova_rebuild_file_inode_tree(struct super_block *sb,
 					struct nova_inode *pi, u64 pi_addr,
 					struct nova_inode_info_header *sih)

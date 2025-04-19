@@ -277,12 +277,12 @@ static inline unsigned long nova_get_numblocks(unsigned short btype)
 	return num_blocks;
 }
 
-static inline int nova_blknr_to_blkidx(int blknr, int btype)
+static inline u64 nova_blknr_to_blkidx(u64 blknr, int btype)
 {
 	return blknr / nova_get_numblocks(btype);
 }
 
-static inline int nova_blknr_to_nvmidx(struct nova_sb_info *sbi, int blknr,
+static inline int nova_blknr_to_nvmidx(struct nova_sb_info *sbi, u64 blknr,
 				       int btype, int meta)
 {
 	if (meta) {
@@ -302,14 +302,14 @@ static inline int nova_nvmidx_to_socket(struct nova_sb_info *sbi, int nvmidx)
 }
 
 /* Which socket this block belongs to */
-static inline int nova_block_to_socket(struct nova_sb_info *sbi, int blocknr,
+static inline int nova_block_to_socket(struct nova_sb_info *sbi, u64 blocknr,
 				       int btype, int meta)
 {
 	return nova_nvmidx_to_socket(sbi, nova_blknr_to_nvmidx(sbi, blocknr,
 							       btype, meta));
 }
 
-static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr,
+static inline int nova_block_to_cpu(struct nova_sb_info *sbi, u64 blocknr,
 				    int meta)
 {
 	int cpu;
@@ -320,11 +320,11 @@ static inline int nova_block_to_cpu(struct nova_sb_info *sbi, int blocknr,
 	return cpu;
 }
 
-static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, int blocknr,
+static inline u64 nova_block_to_nvmoff(struct nova_sb_info *sbi, u64 blocknr,
 				       int btype, int meta)
 {
-	int off;
-	int blkidx = nova_blknr_to_blkidx(blocknr, btype);
+	u64 off;
+	u64 blkidx = nova_blknr_to_blkidx(blocknr, btype);
 	if (meta) {
 		off = blkidx / sbi->meta_nvm_num;
 	} else {
@@ -358,7 +358,7 @@ static inline void *nova_get_virt_addr_from_offset(struct super_block *sb,
 	return ret;
 }
 
-static inline int nova_get_block_from_addr(struct nova_sb_info *sbi, void *addr,
+static inline u64 nova_get_block_from_addr(struct nova_sb_info *sbi, void *addr,
 					   int meta)
 {
 	if (meta)
@@ -882,7 +882,7 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 	u64 blockoff;
 	int cpu;
 	u64 strp_nr;
-	u64 strp_block_off;
+	u64 strp_block, strp_block_off;
 	int BLOCK_SHIFT;
 
 	BLOCK_SHIFT = PAGE_SHIFT - NOVA_STRIPE_SHIFT;
@@ -905,21 +905,23 @@ static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 
 	// stripe number = block index on per cpu list << BLOCK_SHIFT
 	strp_nr = (blocknr - cpu * sbi->per_data_list_blocks) << BLOCK_SHIFT;
-	strp_block_off = (strp_nr * NOVA_DATA_CSUM_LEN) >> PAGE_SHIFT;
+	strp_block = (strp_nr * NOVA_DATA_CSUM_LEN) >> PAGE_SHIFT;
+	strp_block_off = (strp_nr * NOVA_DATA_CSUM_LEN) & (PAGE_SIZE - 1);
 
 	free_list = nova_get_free_list(sb, cpu);
 	if (replica == 0)
 		blockoff = nova_get_block_off(
-			sb, free_list->meta_list.csum_start + strp_block_off,
+			sb, free_list->meta_list.csum_start + strp_block,
 			NOVA_BLOCK_TYPE_4K, 1);
 	else
 		blockoff = nova_get_block_off(
 			sb,
-			free_list->meta_list.replica_csum_start +
-				strp_block_off,
+			free_list->meta_list.replica_csum_start + strp_block,
 			NOVA_BLOCK_TYPE_4K, 1);
 
-	data_csum_addr = (u8 *)nova_get_virt_addr_from_offset(sb, blockoff, 1);
+	data_csum_addr =
+		(u8 *)(nova_get_virt_addr_from_offset(sb, blockoff, 1) +
+		       strp_block_off);
 
 	nova_dbg_trans("%s: data csum addr: %#llx\n", __func__,
 		       (u64)data_csum_addr);
@@ -1121,7 +1123,7 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 				 loff_t pos, size_t count,
 				 unsigned long blocknr, void *ubuf_copy,
 				 int *head, int *tail, int *head_eq_tail,
-				 long *issued_cnt,
+				 int append, long *issued_cnt,
 				 struct nova_notifyer *completed_cnt);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 			   loff_t pos, size_t count, char *ubuf_copy,

@@ -778,27 +778,14 @@ copy:
 
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
 				     &irq_flags);
-		if (support_clwb) {
-			memcpy(csum_addr, src_addr, NOVA_DATA_CSUM_LEN);
-			memcpy(csum_addr1, src_addr, NOVA_DATA_CSUM_LEN);
-		} else {
-			memcpy_to_pmem_nocache(csum_addr, src_addr,
-					       NOVA_DATA_CSUM_LEN);
-			memcpy_to_pmem_nocache(csum_addr1, src_addr,
-					       NOVA_DATA_CSUM_LEN);
-		}
+		memcpy_to_pmem_nocache(csum_addr, src_addr, NOVA_DATA_CSUM_LEN);
+		memcpy_to_pmem_nocache(csum_addr1, src_addr,
+				       NOVA_DATA_CSUM_LEN);
 		nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
 				   &irq_flags);
 
 		if (!zero)
 			strp_ptr += strp_size;
-	}
-	// combine to one flush
-	if (support_clwb) {
-		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
-		csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
-		nova_flush_buffer(csum_addr, NOVA_DATA_CSUM_LEN * strps, 0);
-		nova_flush_buffer(csum_addr1, NOVA_DATA_CSUM_LEN * strps, 0);
 	}
 
 	return 0;

@@ -26,10 +26,4 @@ int nova_send_request(nova_ring_buffer_t *ring,
 int nova_recv_request(nova_ring_buffer_t *ring,
 		      struct nova_delegation_request *request);
 
-int nova_ring_empty(nova_ring_buffer_t *ring);
-
-size_t nova_ring_len(nova_ring_buffer_t *ring);
-
-int nova_filled_ring_num(int socket);
-
 #endif /* __RING_H_ */

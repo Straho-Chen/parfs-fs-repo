@@ -485,7 +485,11 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 	size_t copied = 0, error = 0;
 	int blocksize_mask = nova_inode_blk_size(sih) - 1;
 	int data_bits = nova_inode_blk_shift(sih);
+	size_t data_block_size = nova_inode_blk_size(sih);
 	int socket;
+
+	size_t loop_copied;
+	unsigned long blknr_loop;
 
 	INIT_TIMING(fini_delegation_time);
 
@@ -545,9 +549,22 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 			nova_dbg_verbose(
 				"Required extent not found: pgoff %#lx, inode size %lld\n",
 				index, isize);
-			nr = nova_inode_blk_size(sih);
-			zero = 1;
-			goto memcpy;
+			nr = data_block_size - offset;
+			if (nr > len - copied)
+				nr = len - copied;
+			left = __clear_user(buf + copied, nr);
+			if (left) {
+				nova_dbg(
+					"%s ERROR!: fill zero bytes %#lx, left %#lx\n",
+					__func__, nr, left);
+				error = -EFAULT;
+				goto out;
+			}
+			copied += (nr - left);
+			offset += (nr - left);
+			index += offset >> data_bits;
+			offset &= ~blocksize_mask;
+			continue;
 		}
 
 		/*
@@ -559,7 +576,7 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 		else if (!nova_verify_entry_csum(sb, entry, entryc))
 			return -EIO;
 #else
-		else if (!nova_get_entry_copy(sb, entry, &entry_copy)) {
+		else if (!nova_get_entry_copy(sb, entry, entryc)) {
 			nova_err(sb, "%s: copy entry failed!\n", __func__);
 			return -EIO;
 		}
@@ -575,41 +592,55 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 			return -EINVAL;
 		}
 		// do read in block granularity
-		nr = nova_inode_blk_size(sih);
+		if (entryc->reassigned == 0) {
+			nr = (entryc->num_pages - (index - entryc->pgoff)) *
+			     data_block_size;
+		} else {
+			nr = data_block_size;
+		}
 
-		nvmm = get_nvmm(sb, sih, entryc, index);
-		nova_dbg_verbose("%s: nvmm: %#lx\n", __func__, nvmm);
-		socket = nova_block_to_socket(sbi, nvmm, sih->i_blk_type, 0);
-		dax_mem = nova_get_virt_addr_from_offset(
-			sb, nova_get_block_off(sb, nvmm, sih->i_blk_type, 0),
-			0);
-
-memcpy:
 		nr = nr - offset;
 		if (nr > len - copied)
 			nr = len - copied;
 
-		nova_dbg_verbose(
-			"%s: entryc_num_pages: %d, entryc_pgoff: %#llx, index: %#lx, nr: %#lx, offset: %#lx\n",
-			__func__, entryc->num_pages, entryc->pgoff, index, nr,
-			offset);
+		loop_copied = 0;
+		blknr_loop = index;
+		while (loop_copied < nr) {
+			nvmm = get_nvmm(sb, sih, entryc, index);
+			socket = nova_block_to_socket(sbi, nvmm,
+						      sih->i_blk_type, 0);
+			nova_dbg_verbose("%s: nvmm: %#lx, socket: %d\n",
+					 __func__, nvmm, socket);
+			dax_mem = nova_get_virt_addr_from_offset(
+				sb,
+				nova_get_block_off(sb, nvmm, sih->i_blk_type,
+						   0),
+				0);
 
-		left = do_nova_nvmm_read(sb, buf + copied, dax_mem + offset, nr,
-					 0, socket, zero, issued_cnt,
-					 completed_cnt,
-					 len >= NOVA_READ_WAIT_THRESHOLD);
+			nova_dbg_verbose(
+				"%s: entryc_num_pages: %d, entryc_pgoff: %#llx, index: %#lx, nr: %#lx, offset: %#lx\n",
+				__func__, entryc->num_pages, entryc->pgoff,
+				index, nr, offset);
 
-		if (left) {
-			nova_dbg("%s ERROR!: bytes %#lx, left %#lx\n", __func__,
-				 nr, left);
-			error = -EFAULT;
-			goto out;
+			left = do_nova_nvmm_read(
+				sb, buf + loop_copied + copied,
+				dax_mem + offset, data_block_size - offset, 0,
+				socket, zero, issued_cnt, completed_cnt,
+				len >= NOVA_READ_WAIT_THRESHOLD);
+
+			if (left) {
+				nova_dbg("%s ERROR!: bytes %#lx, left %#lx\n",
+					 __func__, nr, left);
+				error = -EFAULT;
+				goto out;
+			}
+			loop_copied += (data_block_size - left);
+			offset += (data_block_size - left);
+			index += offset >> data_bits;
+			offset &= blocksize_mask;
 		}
 
-		copied += (nr - left);
-		offset += (nr - left);
-		index += offset >> data_bits;
-		offset &= blocksize_mask;
+		copied += nr;
 
 		cond_cnt++;
 		if (cond_cnt >= NOVA_APP_RING_BUFFER_CHECK_COUNT) {
@@ -696,6 +727,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	size_t delegation_size;
 	int data_num_blks = 1;
 	unsigned long blocknr_loop;
+	size_t ubuf_head_copied;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -826,7 +858,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			 */
 			ret = nova_handle_head_tail_blocks(
 				sb, inode, pos, bytes, blocknr, ubuf_copy,
-				&head, &tail, &head_eq_tail, issued_cnt,
+				&head, &tail, &head_eq_tail, 0, issued_cnt,
 				completed_cnt);
 			if (ret)
 				goto out;
@@ -844,6 +876,11 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		} else {
 			allocated -= head;
 			allocated -= tail;
+		}
+		if (head) {
+			ubuf_head_copied = nova_inode_blk_size(sih) - offset;
+		} else {
+			ubuf_head_copied = 0;
 		}
 		nova_dbg_verbose("%s: copy last %d data blocks\n", __func__,
 				 allocated);
@@ -866,7 +903,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			copied += do_nova_nvmm_write(
 				sb, kmem,
-				(void *)(ubuf_copy + offset +
+				(void *)(ubuf_copy + ubuf_head_copied +
 					 delegation_size * i),
 				delegation_size, 0, socket, 0, 1, 0, issued_cnt,
 				completed_cnt,
@@ -1029,7 +1066,17 @@ ssize_t nova_cow_file_write(struct file *filp, const char __user *buf,
 	sb_start_write(inode->i_sb);
 	inode_lock(inode);
 
-	ret = do_nova_cow_file_write(filp, buf, len, ppos);
+	/*
+	 * If we find that the pos is pointing to the end of file,
+	 * we need to do an optimized append write (inplace append).
+	 */
+	if (*ppos == i_size_read(inode) && !PAGE_ALIGNED(*ppos)) {
+		nova_dbg_verbose("%s: pos = isize, do inplace append\n",
+				 __func__);
+		ret = do_nova_inplace_file_write(filp, buf, len, ppos);
+	} else {
+		ret = do_nova_cow_file_write(filp, buf, len, ppos);
+	}
 
 	inode_unlock(inode);
 	sb_end_write(inode->i_sb);
@@ -1056,9 +1103,19 @@ static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 	struct address_space *mapping = filp->f_mapping;
 	struct inode *inode = mapping->host;
 
-	if (test_opt(inode->i_sb, DATA_COW))
-		return do_nova_cow_file_write(filp, buf, len, ppos);
-	else
+	if (test_opt(inode->i_sb, DATA_COW)) {
+		/*
+	 	 * If we find that the pos is pointing to the end of file,
+	 	 * we need to do an optimized append write (inplace append).
+	 	 */
+		if (*ppos == i_size_read(inode) && !PAGE_ALIGNED(*ppos)) {
+			nova_dbg_verbose("%s: pos = isize, do inplace append\n",
+					 __func__);
+			return do_nova_inplace_file_write(filp, buf, len, ppos);
+		} else {
+			return do_nova_cow_file_write(filp, buf, len, ppos);
+		}
+	} else
 		return do_nova_inplace_file_write(filp, buf, len, ppos);
 }
 

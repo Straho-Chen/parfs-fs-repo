@@ -150,7 +150,7 @@ static void nova_init_free_list(struct super_block *sb,
 		sub_free_list->block_end -= sbi->tail_reserved_blocks;
 
 	nova_data_csum_init_free_list(sb, free_list);
-	nova_data_parity_init_free_list(sb, free_list);
+	// nova_data_parity_init_free_list(sb, free_list);
 }
 
 struct nova_range_node *nova_alloc_blocknode(struct super_block *sb)
@@ -463,14 +463,14 @@ static int nova_free_blocks(struct super_block *sb, unsigned long blocknr,
 
 	nova_dbg_verbose("Free: %#lx - %#lx\n", block_low, block_high);
 
-	if (blocknr < sub_free_list->block_start ||
-	    blocknr + num > sub_free_list->block_end + 1) {
+	if (block_low < sub_free_list->block_start ||
+	    block_high > sub_free_list->block_end + 1) {
 		nova_err(
 			sb,
 			"free blocks %#lx to %#lx, %s free list %d, start %#lx, end %#lx\n",
-			blocknr, blocknr + num - 1,
-			(log_page ? "meta" : "data"), free_list->cpu,
-			sub_free_list->block_start, sub_free_list->block_end);
+			block_low, block_high, (log_page ? "meta" : "data"),
+			free_list->cpu, sub_free_list->block_start,
+			sub_free_list->block_end);
 		ret = -EIO;
 		goto out;
 	}
@@ -1039,38 +1039,63 @@ alloc:
 	if (zero) {
 		struct nova_sb_info *sbi = NOVA_SB(sb);
 		unsigned long irq_flags = 0;
-		for (i = 0; i < ret_blocks; i++) {
-			bp = nova_get_virt_addr_from_offset(
-				sb,
-				nova_get_block_off(sb, new_blocknr + i, btype,
-						   meta),
-				meta);
-			nova_memunlock_range(sb, bp, blocksize, &irq_flags);
-			if (sbi->delegation_ready) {
-				long issued_cnt[NOVA_MAX_SOCKET];
-				struct nova_notifyer
-					completed_cnt[NOVA_MAX_SOCKET];
+		if (sbi->delegation_ready) {
+			int cond_cnt = 0;
+			long issued_cnt[NOVA_MAX_SOCKET];
+			struct nova_notifyer completed_cnt[NOVA_MAX_SOCKET];
+			memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
+			memset(completed_cnt, 0,
+			       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
+			for (i = 0; i < ret_blocks; i++) {
+				bp = nova_get_virt_addr_from_offset(
+					sb,
+					nova_get_block_off(
+						sb,
+						new_blocknr +
+							i * nova_get_numblocks(
+								    btype),
+						btype, meta),
+					meta);
+				nova_memunlock_range(sb, bp, blocksize,
+						     &irq_flags);
 				int socket = nova_block_to_socket(
-					sbi, new_blocknr + i, btype, meta);
-				memset(issued_cnt, 0,
-				       sizeof(long) * NOVA_MAX_SOCKET);
-				memset(completed_cnt, 0,
-				       sizeof(struct nova_notifyer) *
-					       NOVA_MAX_SOCKET);
+					sbi,
+					new_blocknr +
+						i * nova_get_numblocks(btype),
+					btype, meta);
 				// allocated blocks should be contigrous on a single nvm
 				do_nova_nvmm_write(sb, bp, NULL, blocksize,
 						   meta, socket, zero, 1, 0,
 						   issued_cnt, completed_cnt,
 						   0);
-				nova_complete_delegation(issued_cnt,
-							 completed_cnt);
-			} else {
-				memset_nt(bp, 0, blocksize);
-
-				if (need_resched())
-					cond_resched();
+				nova_memlock_range(sb, bp, blocksize,
+						   &irq_flags);
+				cond_cnt++;
+				if (cond_cnt >=
+				    NOVA_APP_RING_BUFFER_CHECK_COUNT) {
+					cond_cnt = 0;
+					if (need_resched())
+						cond_resched();
+				}
 			}
-			nova_memlock_range(sb, bp, blocksize, &irq_flags);
+			nova_complete_delegation(issued_cnt, completed_cnt);
+		} else {
+			for (i = 0; i < ret_blocks; i++) {
+				bp = nova_get_virt_addr_from_offset(
+					sb,
+					nova_get_block_off(
+						sb,
+						new_blocknr +
+							i * nova_get_numblocks(
+								    btype),
+						btype, meta),
+					meta);
+				nova_memunlock_range(sb, bp, blocksize,
+						     &irq_flags);
+				memset_nt(bp, 0, blocksize);
+				nova_memlock_range(sb, bp, blocksize,
+						   &irq_flags);
+			}
 		}
 	}
 	*blocknr = new_blocknr;
