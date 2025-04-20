@@ -755,6 +755,8 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	/*
 	 * let user buffer to be kernel thread shared and 64-byte aligned
 	 */
+
+#if NOVA_KERNEL_COPY_USER_BUFFER
 	ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
 	ubuf_copy_src = ubuf_copy;
 	if (ubuf_copy == NULL) {
@@ -769,6 +771,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		ret = -EFAULT;
 		goto out;
 	}
+#endif
 
 	memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
 	memset(completed_cnt, 0,
@@ -867,10 +870,19 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			 * If the old block is not persent, fill zero to the new block.
 			 * Copy user data to the new block at the same time.
 			 */
+
+#if NOVA_KERNEL_COPY_USER_BUFFER
 			ret = nova_handle_head_tail_blocks(
 				sb, inode, pos, bytes, blocknr, ubuf_copy,
 				&head, &tail, &head_eq_tail, 0, issued_cnt,
 				completed_cnt);
+#else
+			ret = nova_handle_head_tail_blocks(
+				sb, inode, pos, bytes, blocknr, (char *)buf,
+				&head, &tail, &head_eq_tail, 0, issued_cnt,
+				completed_cnt);
+#endif
+
 			if (ret)
 				goto out;
 		}
@@ -922,8 +934,9 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem,
-				(void *)(buf + offset + delegation_size * i),
-				delegation_size, socket, 0, 1, 0, issued_cnt,
+				(void *)(buf + ubuf_head_copied +
+					 delegation_size * i),
+				delegation_size, 0, socket, 0, 1, 0, issued_cnt,
 				completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD);
 #endif
@@ -952,9 +965,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		copied = bytes;
 
 		if (data_csum > 0 || data_parity > 0) {
-			/* calculate data checksum and write csum to pmem */
+/* calculate data checksum and write csum to pmem */
+#if NOVA_KERNEL_COPY_USER_BUFFER
 			ret = nova_protect_file_data(sb, inode, pos, bytes,
 						     ubuf_copy, blocknr);
+#else
+			ret = nova_protect_file_data(sb, inode, pos, bytes,
+						     (char *)buf, blocknr);
+#endif
 			if (ret)
 				goto out;
 		}
@@ -990,7 +1008,11 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			status = copied;
 			written += copied;
 			pos += copied;
+#if NOVA_KERNEL_COPY_USER_BUFFER
 			ubuf_copy += copied;
+#else
+			buf += copied;
+#endif
 			count -= copied;
 			num_blocks -= allocated;
 		}
@@ -1086,6 +1108,7 @@ ssize_t nova_cow_file_write(struct file *filp, const char __user *buf,
 	sb_start_write(inode->i_sb);
 	inode_lock(inode);
 
+#if NOVA_OPTIMIZE_APPEND
 	/*
 	 * If we find that the pos is pointing to the end of file,
 	 * we need to do an optimized append write (inplace append).
@@ -1097,6 +1120,9 @@ ssize_t nova_cow_file_write(struct file *filp, const char __user *buf,
 	} else {
 		ret = do_nova_cow_file_write(filp, buf, len, ppos);
 	}
+#else
+	ret = do_nova_cow_file_write(filp, buf, len, ppos);
+#endif
 
 	inode_unlock(inode);
 	sb_end_write(inode->i_sb);
@@ -1124,6 +1150,7 @@ static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 	struct inode *inode = mapping->host;
 
 	if (test_opt(inode->i_sb, DATA_COW)) {
+#if NOVA_OPTIMIZE_APPEND
 		/*
 	 	 * If we find that the pos is pointing to the end of file,
 	 	 * we need to do an optimized append write (inplace append).
@@ -1135,6 +1162,10 @@ static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 		} else {
 			return do_nova_cow_file_write(filp, buf, len, ppos);
 		}
+#else
+		return do_nova_cow_file_write(filp, buf, len, ppos);
+#endif
+
 	} else
 		return do_nova_inplace_file_write(filp, buf, len, ppos);
 }
