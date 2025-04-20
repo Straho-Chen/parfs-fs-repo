@@ -94,4 +94,7 @@
 
 #define NOVA_KERNEL_COPY_USER_BUFFER 1
 
+#define NOVA_ENTRY_IN_MEM 1
+#define NOVA_INODE_IN_MEM 1
+
 #endif /* __NOVA_CONFIG_H_ */

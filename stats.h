@@ -24,6 +24,7 @@
 #include <linux/time.h>
 
 extern int measure_timing;
+extern int measure_meta_timing;
 
 /* ======================= Timing ========================= */
 enum timing_category {
@@ -193,6 +194,16 @@ enum timing_category {
 	TIMING_NUM,
 };
 
+enum timing_meta_category {
+	bd_cow_write_t,
+	bd_memcpy_w_t,
+
+	bd_dax_read_t,
+	bd_memcpy_r_t,
+
+	META_TIMING_NUM,
+};
+
 enum stats_category {
 	alloc_steps,
 	cow_write_breaks,
@@ -218,6 +229,11 @@ enum stats_category {
 	/* Sentinel */
 	STATS_NUM,
 };
+
+extern u64 Timingmetastats[META_TIMING_NUM];
+DECLARE_PER_CPU(u64[META_TIMING_NUM], Timingmetastats_percpu);
+extern u64 Countmetastats[META_TIMING_NUM];
+DECLARE_PER_CPU(u64[META_TIMING_NUM], Countmetastats_percpu);
 
 extern const char *Timingstring[TIMING_NUM];
 extern u64 Timingstats[TIMING_NUM];
@@ -258,6 +274,30 @@ static inline void mem_fence(void)
 					       (end.tv_nsec - start.tv_nsec)); \
 		}                                                              \
 		__this_cpu_add(Countstats_percpu[name], 1);                    \
+	}
+
+#define NOVA_START_META_TIMING(name, start)     \
+	{                                       \
+		if (measure_meta_timing) {      \
+			mem_fence();            \
+			ktime_get_ts64(&start); \
+			mem_fence();            \
+		}                               \
+	}
+
+#define NOVA_END_META_TIMING(name, start)                                      \
+	{                                                                      \
+		if (measure_meta_timing) {                                     \
+			INIT_TIMING(end);                                      \
+			mem_fence();                                           \
+			ktime_get_ts64(&end);                                  \
+			mem_fence();                                           \
+			__this_cpu_add(Timingmetastats_percpu[name],           \
+				       (end.tv_sec - start.tv_sec) *           \
+						       1000000000 +            \
+					       (end.tv_nsec - start.tv_nsec)); \
+		}                                                              \
+		__this_cpu_add(Countmetastats_percpu[name], 1);                \
 	}
 
 #define NOVA_STATS_ADD(name, value)                          \

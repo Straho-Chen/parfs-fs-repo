@@ -44,6 +44,7 @@
 #include "journal.h"
 
 int measure_timing;
+int measure_meta_timing;
 int metadata_csum;
 int wprotect;
 int data_csum;
@@ -53,6 +54,9 @@ int support_clwb;
 
 module_param(measure_timing, int, 0444);
 MODULE_PARM_DESC(measure_timing, "Timing measurement");
+
+module_param(measure_meta_timing, int, 0444);
+MODULE_PARM_DESC(measure_meta_timing, "Timing measurement for meta breakdown");
 
 module_param(metadata_csum, int, 0444);
 MODULE_PARM_DESC(metadata_csum,
@@ -180,7 +184,6 @@ static int nova_get_nvmm_info(struct super_block *sb, struct nova_sb_info *sbi)
 		nova_dbg("%s: pmem %d socket %d\n", __func__, i,
 			 pmem_ar_dev.numa_node[i]);
 	}
-
 
 	return 0;
 }
@@ -1166,7 +1169,7 @@ static void nova_put_super(struct super_block *sb)
 	nova_agents_fini();
 	nova_fini_ring_buffers();
 
-	if (measure_timing) {
+	if (measure_timing || measure_meta_timing) {
 		nova_print_timing_stats(sb);
 		nova_clear_stats(sb);
 	}

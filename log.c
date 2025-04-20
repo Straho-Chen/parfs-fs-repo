@@ -538,22 +538,32 @@ static int nova_append_setattr_entry(struct super_block *sb,
 	entry_info.epoch_id = epoch_id;
 	entry_info.trans_id = sih->trans_id;
 
+#if NOVA_INODE_IN_MEM
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
 				       sih->alter_pi_addr, &inode_copy,
 				       0) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+#endif
 
+#if NOVA_INODE_IN_MEM
 	ret = nova_append_log_entry(sb, pi, &inode_copy, inode, sih,
 				    &entry_info);
+#else
+	ret = nova_append_log_entry(sb, pi, NULL, inode, sih, &entry_info);
+#endif
 	if (ret) {
 		nova_err(sb, "%s failed\n", __func__);
 		goto out;
 	}
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
+#if NOVA_INODE_IN_MEM
 	nova_update_inode(sb, inode, pi, &inode_copy, update, 1);
+#else
+	nova_update_inode(sb, inode, pi, NULL, update, 1);
+#endif
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	*last_setattr = sih->last_setattr;
@@ -795,12 +805,14 @@ int nova_append_link_change_entry(struct super_block *sb, struct nova_inode *pi,
 
 	NOVA_START_TIMING(append_link_change_t, append_time);
 
+#if NOVA_INODE_IN_MEM
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
 				       sih->alter_pi_addr, &inode_copy,
 				       0) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+#endif
 
 	if (nova_can_inplace_update_lcentry(sb, sih, epoch_id)) {
 		nova_inplace_update_lcentry(sb, inode, sih, epoch_id);
@@ -817,14 +829,21 @@ int nova_append_link_change_entry(struct super_block *sb, struct nova_inode *pi,
 	entry_info.epoch_id = epoch_id;
 	entry_info.trans_id = sih->trans_id;
 
+#if NOVA_INODE_IN_MEM
 	ret = nova_append_log_entry(sb, pi, &inode_copy, inode, sih,
 				    &entry_info);
+#else
+	ret = nova_append_log_entry(sb, pi, NULL, inode, sih, &entry_info);
+#endif
+
 	if (ret) {
 		nova_err(sb, "%s failed\n", __func__);
 		goto out;
 	}
 
+#if NOVA_INODE_IN_MEM
 	memcpy_to_pmem_nocache(pi, &inode_copy, sizeof(struct nova_inode));
+#endif
 
 	*old_linkc = sih->last_link_change;
 	sih->last_link_change = entry_info.curr_p;
@@ -989,20 +1008,30 @@ int nova_append_mmap_entry(struct super_block *sb, struct nova_inode *pi,
 	entry_info.data = data;
 	entry_info.epoch_id = data->epoch_id;
 
+#if NOVA_INODE_IN_MEM
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
 				       sih->alter_pi_addr, &inode_copy,
 				       0) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+#endif
 
+#if NOVA_INODE_IN_MEM
 	ret = nova_append_log_entry(sb, pi, &inode_copy, inode, sih,
 				    &entry_info);
+#else
+	ret = nova_append_log_entry(sb, pi, NULL, inode, sih, &entry_info);
+#endif
 	if (ret)
 		nova_err(sb, "%s failed\n", __func__);
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
+#if NOVA_INODE_IN_MEM
 	nova_update_inode(sb, inode, pi, &inode_copy, update, 1);
+#else
+	nova_update_inode(sb, inode, pi, NULL, update, 1);
+#endif
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	item->mmap_entry = entry_info.curr_p;
@@ -1035,20 +1064,30 @@ int nova_append_snapshot_info_entry(struct super_block *sb,
 	entry_info.epoch_id = data->epoch_id;
 	entry_info.inplace = 0;
 
+#if NOVA_INODE_IN_MEM
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
 				       sih->alter_pi_addr, &inode_copy,
 				       0) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+#endif
 
+#if NOVA_INODE_IN_MEM
 	ret = nova_append_log_entry(sb, pi, &inode_copy, NULL, sih,
 				    &entry_info);
+#else
+	ret = nova_append_log_entry(sb, pi, NULL, NULL, sih, &entry_info);
+#endif
 	if (ret)
 		nova_err(sb, "%s failed\n", __func__);
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
+#if NOVA_INODE_IN_MEM
 	nova_update_inode(sb, &si->vfs_inode, pi, &inode_copy, update, 1);
+#else
+	nova_update_inode(sb, &si->vfs_inode, pi, NULL, update, 1);
+#endif
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	info->snapshot_entry = entry_info.curr_p;
@@ -1087,12 +1126,14 @@ int nova_append_dentry(struct super_block *sb, struct nova_inode *pi,
 	/* nova_inode tail pointer will be updated and we make sure all other
 	 * inode fields are good before checksumming the whole structure
 	 */
+#if NOVA_INODE_IN_MEM
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
 				       sih->alter_pi_addr, &inode_copy,
 				       0) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+#endif
 
 	ret = nova_append_log_entry(sb, pi, NULL, dir, sih, &entry_info);
 	if (ret)

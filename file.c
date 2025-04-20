@@ -576,10 +576,14 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 		else if (!nova_verify_entry_csum(sb, entry, entryc))
 			return -EIO;
 #else
+#if NOVA_ENTRY_IN_MEM
 		else if (!nova_get_entry_copy(sb, entry, entryc)) {
 			nova_err(sb, "%s: copy entry failed!\n", __func__);
 			return -EIO;
 		}
+#else
+		entryc = entry;
+#endif
 #endif
 
 		if (index < entryc->pgoff ||
@@ -675,11 +679,14 @@ static ssize_t nova_dax_file_read(struct file *filp, char __user *buf,
 	struct inode *inode = filp->f_mapping->host;
 	ssize_t res;
 	INIT_TIMING(dax_read_time);
+	INIT_TIMING(bd_read_time);
 
 	NOVA_START_TIMING(dax_read_t, dax_read_time);
+	NOVA_START_META_TIMING(bd_dax_read_t, bd_read_time);
 	inode_lock_shared(inode);
 	res = do_dax_mapping_read(filp, buf, len, ppos);
 	inode_unlock_shared(inode);
+	NOVA_END_META_TIMING(bd_dax_read_t, bd_read_time);
 	NOVA_END_TIMING(dax_read_t, dax_read_time);
 	return res;
 }
@@ -713,6 +720,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	size_t bytes;
 	long status = 0;
 	INIT_TIMING(cow_write_time);
+	INIT_TIMING(bd_write_time);
 	INIT_TIMING(fini_delegation_time);
 	unsigned long step = 0;
 	ssize_t ret;
@@ -737,6 +745,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		return 0;
 
 	NOVA_START_TIMING(do_cow_write_t, cow_write_time);
+	NOVA_START_META_TIMING(bd_cow_write_t, bd_write_time);
 
 	if (!access_ok(buf, len)) {
 		ret = -EFAULT;
@@ -774,21 +783,23 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 
 	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
 
-	/* nova_inode tail pointer will be updated and we make sure all other
+/* nova_inode tail pointer will be updated and we make sure all other
 	 * inode fields are good before checksumming the whole structure
 	 */
-	// if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
-	// 			       sih->alter_pi_addr, &inode_copy,
-	// 			       0) < 0) {
-	// 	ret = -EIO;
-	// 	goto out;
-	// }
-	/* Do integrity checking on recovery. */
+// if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,
+// 			       sih->alter_pi_addr, &inode_copy,
+// 			       0) < 0) {
+// 	ret = -EIO;
+// 	goto out;
+// }
+/* Do integrity checking on recovery. */
+#if NOVA_INODE_IN_MEM
 	if (nova_copy_inode(sb, sih->ino, sih->pi_addr, sih->alter_pi_addr,
 			    &inode_copy) < 0) {
 		ret = -EIO;
 		goto out;
 	}
+#endif
 
 	data_bits = nova_inode_blk_shift(sih);
 	blocksize_mask = nova_inode_blk_size(sih) - 1;
@@ -958,12 +969,16 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 					   start_blk, allocated, blocknr, time,
 					   file_size);
 
-		/* write entry to pm; Jm and M */
-		/* may do gc here */
+/* write entry to pm; Jm and M */
+/* may do gc here */
+#if NOVA_INODE_IN_MEM
 		ret = nova_append_file_write_entry(sb, pi, &inode_copy, inode,
 						   &entry_data, &update);
-		// ret = nova_append_file_write_entry(sb, pi, inode, &entry_data,
-		// 				   &update);
+#else
+		ret = nova_append_file_write_entry(sb, pi, NULL, inode,
+						   &entry_data, &update);
+#endif
+
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);
 			ret = -ENOSPC;
@@ -1002,8 +1017,12 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	sih->i_blocks += (total_blocks << (data_bits - sb->s_blocksize_bits));
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
-	// update inode (pi->log_tail); like Jc
+// update inode (pi->log_tail); like Jc
+#if NOVA_INODE_IN_MEM
 	nova_update_inode(sb, inode, pi, &inode_copy, &update, 1);
+#else
+	nova_update_inode(sb, inode, pi, NULL, &update, 1);
+#endif
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	/* Free the overlap blocks after the write is committed */
@@ -1036,6 +1055,7 @@ out:
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
 					      begin_tail, update.tail);
 
+	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);
 	if (ubuf_copy_src)
@@ -1070,7 +1090,7 @@ ssize_t nova_cow_file_write(struct file *filp, const char __user *buf,
 	 * If we find that the pos is pointing to the end of file,
 	 * we need to do an optimized append write (inplace append).
 	 */
-	if (*ppos == i_size_read(inode) && !PAGE_ALIGNED(*ppos)) {
+	if (*ppos == i_size_read(inode)) {
 		nova_dbg_verbose("%s: pos = isize, do inplace append\n",
 				 __func__);
 		ret = do_nova_inplace_file_write(filp, buf, len, ppos);
@@ -1108,7 +1128,7 @@ static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 	 	 * If we find that the pos is pointing to the end of file,
 	 	 * we need to do an optimized append write (inplace append).
 	 	 */
-		if (*ppos == i_size_read(inode) && !PAGE_ALIGNED(*ppos)) {
+		if (*ppos == i_size_read(inode)) {
 			nova_dbg_verbose("%s: pos = isize, do inplace append\n",
 					 __func__);
 			return do_nova_inplace_file_write(filp, buf, len, ppos);

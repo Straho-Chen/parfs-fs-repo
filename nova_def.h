@@ -94,9 +94,7 @@ extern void nova_error_mng(struct super_block *sb, const char *fmt, ...);
 #define nova_warn(s, args...)                                      \
 	pr_warn("[WARN][cpu:%d pid:%d]" s, raw_smp_processor_id(), \
 		task_pid_nr(current), ##args)
-#define nova_info(s, args...)                                      \
-	pr_info("[INFO][cpu:%d pid:%d]" s, raw_smp_processor_id(), \
-		task_pid_nr(current), ##args)
+#define nova_info(s, args...) pr_info(s, ##args)
 
 extern unsigned int nova_dbgmask;
 #define NOVA_DBGMASK_MMAPHUGE (0x00000001)
