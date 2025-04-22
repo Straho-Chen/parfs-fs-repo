@@ -291,10 +291,10 @@ static void nova_print_meta_stats(struct super_block *sb)
 						Timingmetastats[bd_memcpy_w_t]);
 	nova_info("write_data: %llu\n", Timingmetastats[bd_memcpy_w_t]);
 
-	nova_info("read_total: %llu\n", Timingmetastats[bd_dax_read_t]);
-	nova_info("read_meta: %llu\n", Timingmetastats[bd_dax_read_t] -
-					       Timingmetastats[bd_memcpy_r_t]);
-	nova_info("read_data: %llu\n", Timingmetastats[bd_memcpy_r_t]);
+	// nova_info("read_total: %llu\n", Timingmetastats[bd_dax_read_t]);
+	// nova_info("read_meta: %llu\n", Timingmetastats[bd_dax_read_t] -
+	// 				       Timingmetastats[bd_memcpy_r_t]);
+	// nova_info("read_data: %llu\n", Timingmetastats[bd_memcpy_r_t]);
 }
 
 void nova_get_timing_stats(void)

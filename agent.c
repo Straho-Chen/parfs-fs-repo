@@ -174,7 +174,7 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
 	INIT_TIMING(memcpy_time);
-	INIT_TIMING(bd_memcpy_time);
+	// INIT_TIMING(bd_memcpy_time);
 
 	INIT_TIMING(address_translation_time);
 	NOVA_START_TIMING(agent_addr_trans_r_t, address_translation_time);
@@ -187,7 +187,7 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 			    kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_r_t, memcpy_time);
-	NOVA_START_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
+	// NOVA_START_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
 
 	for (i = 0; i < tasks_index; i++) {
 		if (zero) {
@@ -204,7 +204,7 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 		}
 	}
 
-	NOVA_END_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
+	// NOVA_END_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
 	NOVA_END_TIMING(agent_memcpy_r_t, memcpy_time);
 
 out:
