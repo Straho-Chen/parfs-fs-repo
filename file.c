@@ -947,10 +947,15 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 					   start_blk, allocated, blocknr, time,
 					   file_size);
 
-		/* write entry to pm; Jm and M */
-		/* may do gc here */
+/* write entry to pm; Jm and M */
+/* may do gc here */
+#if NOVA_INODE_IN_MEM
+		ret = nova_append_file_write_entry(sb, pi, &inode_copy, inode,
+						   &entry_data, &update);
+#else
 		ret = nova_append_file_write_entry(sb, pi, NULL, inode,
 						   &entry_data, &update);
+#endif
 
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);
