@@ -219,6 +219,8 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 			// we have already copy user buffer when head = tail and offset != 0
 			nova_dbg_verbose("%s: copy tail user buffer\n",
 					 __func__);
+			nova_dbg_verbose("%s: ubuf_off: %lu\n", __func__,
+					 ubuf_off);
 			ret = do_nova_nvmm_write(sb, kmem, ubuf_copy + ubuf_off,
 						 eblk_offset, 0, socket, 0,
 						 support_clwb, 0, issued_cnt,

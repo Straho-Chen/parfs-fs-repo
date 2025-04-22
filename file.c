@@ -488,9 +488,6 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 	size_t data_block_size = nova_inode_blk_size(sih);
 	int socket;
 
-	size_t loop_copied;
-	unsigned long blknr_loop;
-
 	INIT_TIMING(fini_delegation_time);
 
 	int cond_cnt = 0;
@@ -522,6 +519,8 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 
 	if (len > isize - pos)
 		len = isize - pos;
+
+	nova_dbg_verbose("%s: set len to %lu\n", __func__, len);
 
 	if (len <= 0)
 		goto out;
@@ -596,6 +595,7 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 			return -EINVAL;
 		}
 		// do read in block granularity
+		// nr is keep in the same entry range
 		if (entryc->reassigned == 0) {
 			nr = (entryc->num_pages - (index - entryc->pgoff)) *
 			     data_block_size;
@@ -607,14 +607,15 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 		if (nr > len - copied)
 			nr = len - copied;
 
-		loop_copied = 0;
-		blknr_loop = index;
-		while (loop_copied < nr) {
+		while (nr + offset >= data_block_size) {
+			nova_dbg_verbose("%s: nr: %lu, copy a data block\n",
+					 __func__, nr);
 			nvmm = get_nvmm(sb, sih, entryc, index);
 			socket = nova_block_to_socket(sbi, nvmm,
 						      sih->i_blk_type, 0);
-			nova_dbg_verbose("%s: nvmm: %#lx, socket: %d\n",
-					 __func__, nvmm, socket);
+			nova_dbg_verbose(
+				"%s: tail block nvmm: %#lx, socket: %d, index: %lu\n",
+				__func__, nvmm, socket, index);
 			dax_mem = nova_get_virt_addr_from_offset(
 				sb,
 				nova_get_block_off(sb, nvmm, sih->i_blk_type,
@@ -627,8 +628,41 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 				index, nr, offset);
 
 			left = do_nova_nvmm_read(
-				sb, buf + loop_copied + copied,
-				dax_mem + offset, data_block_size - offset, 0,
+				sb, buf + copied, dax_mem + offset,
+				data_block_size - offset, 0, socket, zero,
+				issued_cnt, completed_cnt,
+				len >= NOVA_READ_WAIT_THRESHOLD);
+
+			if (left) {
+				nova_dbg("%s ERROR!: bytes %#lx, left %#lx\n",
+					 __func__, nr, left);
+				error = -EFAULT;
+				goto out;
+			}
+			copied += (data_block_size - offset);
+			nr -= (data_block_size - offset);
+			offset += (data_block_size - offset);
+			index += offset >> data_bits;
+			offset &= blocksize_mask;
+		}
+		if (nr != 0) {
+			// tail block
+			nova_dbg_verbose("%s: nr: %lu, tail block\n", __func__,
+					 nr);
+			nvmm = get_nvmm(sb, sih, entryc, index);
+			socket = nova_block_to_socket(sbi, nvmm,
+						      sih->i_blk_type, 0);
+			nova_dbg_verbose(
+				"%s: tail block nvmm: %#lx, socket: %d, index: %lu\n",
+				__func__, nvmm, socket, index);
+			dax_mem = nova_get_virt_addr_from_offset(
+				sb,
+				nova_get_block_off(sb, nvmm, sih->i_blk_type,
+						   0),
+				0);
+
+			left = do_nova_nvmm_read(
+				sb, buf + copied, dax_mem + offset, nr, 0,
 				socket, zero, issued_cnt, completed_cnt,
 				len >= NOVA_READ_WAIT_THRESHOLD);
 
@@ -638,13 +672,12 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 				error = -EFAULT;
 				goto out;
 			}
-			loop_copied += (data_block_size - left);
-			offset += (data_block_size - left);
+			copied += (nr - left);
+			nr -= (nr - left);
+			offset += (nr - left);
 			index += offset >> data_bits;
 			offset &= blocksize_mask;
 		}
-
-		copied += nr;
 
 		cond_cnt++;
 		if (cond_cnt >= NOVA_APP_RING_BUFFER_CHECK_COUNT) {
