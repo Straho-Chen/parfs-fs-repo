@@ -1031,22 +1031,24 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 	INIT_TIMING(bd_memcpy_time);
 	INIT_TIMING(delegation_time);
 
-	if (bytes < NOVA_READ_DELEGATION_LIMIT) {
-		nova_dbg_delegation("less than delegation limit\n");
+	if (zero) {
+		nova_dbg_delegation("do __clear_user to fill zero\n");
 		NOVA_START_TIMING(memcpy_r_nvmm_t, memcpy_time);
 		NOVA_START_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
+		left = __clear_user(ubuf_dest, bytes);
+		NOVA_END_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
+		NOVA_END_TIMING(memcpy_r_nvmm_t, memcpy_time);
+		return left;
+	}
 
-		if (!zero) {
-			nova_dbg_delegation(
-				"do __copy_to_user from %#lx to %#lx\n",
-				(unsigned long)kmem_src,
-				(unsigned long)ubuf_dest);
-			left = __copy_to_user(ubuf_dest, kmem_src, bytes);
-		} else {
-			nova_dbg_delegation("do __clear_user to fill zero\n");
-			left = __clear_user(ubuf_dest, bytes);
-		}
-
+	if (bytes < NOVA_READ_DELEGATION_LIMIT) {
+		nova_dbg_delegation("less than delegation limit\n");
+		nova_dbg_delegation("do __copy_to_user from %#lx to %#lx\n",
+				    (unsigned long)kmem_src,
+				    (unsigned long)ubuf_dest);
+		NOVA_START_TIMING(memcpy_r_nvmm_t, memcpy_time);
+		NOVA_START_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
+		left = __copy_to_user(ubuf_dest, kmem_src, bytes);
 		NOVA_END_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
 		NOVA_END_TIMING(memcpy_r_nvmm_t, memcpy_time);
 	} else {
