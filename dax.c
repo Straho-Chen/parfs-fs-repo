@@ -413,7 +413,7 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 		__func__, offset, eblk_offset, num_blocks, start_blk, end_blk);
 
 	NOVA_START_TIMING(protect_memcpy_t, memcpy_time);
-#if NOVA_ONE_COPY
+#if NOVA_ONE_COPY && NOVA_KERNEL_COPY_USER_BUFFER
 	if (!offset & !eblk_offset) {
 		blockbuf = NULL;
 		aligned = 1;
