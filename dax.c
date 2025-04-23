@@ -91,14 +91,11 @@ static inline int nova_handle_partial_block(struct super_block *sb,
 #else
 			unsigned long irq_flags = 0;
 			INIT_TIMING(memcpy_time);
-			INIT_TIMING(bd_memcpy_time);
 			nova_memunlock_range(sb, kmem + offset, len,
 					     &irq_flags);
 			NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
-			NOVA_START_META_TIMING(bd_memcpy_w_t, bd_memcpy_time);
 			left = memcpy_to_pmem_nocache(kmem + offset,
 						      ptr + offset, len);
-			NOVA_END_META_TIMING(bd_memcpy_w_t, bd_memcpy_time);
 			NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 			nova_memlock_range(sb, kmem + offset, len, &irq_flags);
 #endif

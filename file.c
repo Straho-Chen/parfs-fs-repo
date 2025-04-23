@@ -712,14 +712,11 @@ static ssize_t nova_dax_file_read(struct file *filp, char __user *buf,
 	struct inode *inode = filp->f_mapping->host;
 	ssize_t res;
 	INIT_TIMING(dax_read_time);
-	// INIT_TIMING(bd_read_time);
 
 	NOVA_START_TIMING(dax_read_t, dax_read_time);
-	// NOVA_START_META_TIMING(bd_dax_read_t, bd_read_time);
 	inode_lock_shared(inode);
 	res = do_dax_mapping_read(filp, buf, len, ppos);
 	inode_unlock_shared(inode);
-	// NOVA_END_META_TIMING(bd_dax_read_t, bd_read_time);
 	NOVA_END_TIMING(dax_read_t, dax_read_time);
 	return res;
 }
