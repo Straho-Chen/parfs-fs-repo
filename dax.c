@@ -946,7 +946,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 		ent_blks = nova_check_existing_entry(sb, inode, num_blocks,
 						     start_blk, &entry,
-						     &entry_copy, 1, epoch_id,
+						     &entry_copy, 0, epoch_id,
 						     &inplace, 1);
 
 		entryc = (metadata_csum == 0) ? entry : &entry_copy;
