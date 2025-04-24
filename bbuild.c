@@ -193,10 +193,11 @@ static int _loop_resolve_blockmap_entry(struct super_block *sb,
 	struct sub_free_list *sub_free_list;
 	size_t size = sizeof(struct nova_range_node_lowhigh);
 	u64 curr_p;
-	u64 cpuid;
+	int cpuid;
 	int ret = 0;
 
 	curr_p = sih->log_head;
+	nova_dbg_verbose("%s: log start: %#llx\n", __func__, curr_p);
 	if (curr_p == 0) {
 		nova_dbg("%s: pi head is 0!\n", __func__);
 		return -EINVAL;
@@ -220,15 +221,24 @@ static int _loop_resolve_blockmap_entry(struct super_block *sb,
 			NOVA_ASSERT(0);
 		blknode->range_low = le64_to_cpu(entry->range_low);
 		blknode->range_high = le64_to_cpu(entry->range_high);
+		nova_dbg_verbose("%s: blknode low: %#lx, high: %#lx\n",
+				 __func__, blknode->range_low,
+				 blknode->range_high);
 		nova_update_range_node_checksum(blknode);
+		nova_dbg_verbose("%s: dram_struct_csum: %d\n", __func__,
+				 dram_struct_csum);
 
 		/* FIXME: Assume NR_CPUS not change */
 		if (sih->ino == NOVA_DATA_BLOCKNODE_INO) {
 			cpuid = nova_block_to_cpu(sbi, blknode->range_low, 0);
 			sub_free_list = nova_get_sub_free_list(sb, cpuid, 0);
+			nova_dbg_verbose("%s: get data free list %d\n",
+					 __func__, cpuid);
 		} else {
 			cpuid = nova_block_to_cpu(sbi, blknode->range_low, 1);
 			sub_free_list = nova_get_sub_free_list(sb, cpuid, 1);
+			nova_dbg_verbose("%s: get meta free list %d\n",
+					 __func__, cpuid);
 		}
 
 		ret = nova_insert_blocktree(&sub_free_list->block_free_tree,
@@ -1640,6 +1650,8 @@ int nova_recovery(struct super_block *sb)
 		ktime_get_ts64(&start);
 
 	NOVA_START_TIMING(recovery_t, start);
+	nova_dbg_verbose("%s: meta size: %#lx, data size: %#lx\n", __func__,
+			 meta_size, data_size);
 	sbi->meta_num_blocks = ((unsigned long)(meta_size) >> PAGE_SHIFT);
 	sbi->data_num_blocks = ((unsigned long)(data_size) >> PAGE_SHIFT);
 

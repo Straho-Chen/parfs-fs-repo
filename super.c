@@ -665,6 +665,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	sbi->nova_sb->s_metadata_csum = metadata_csum;
 	sbi->nova_sb->s_data_csum = data_csum;
 	sbi->nova_sb->s_data_parity = data_parity;
+	sbi->nova_sb->s_meta_size =
+		cpu_to_le64(sbi->meta_num_blocks << PAGE_SHIFT);
+	sbi->nova_sb->s_data_size =
+		cpu_to_le64(sbi->data_num_blocks << PAGE_SHIFT);
 	nova_update_super_crc(sb);
 
 	nova_sync_super(sb);
@@ -954,6 +958,9 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 			 le32_to_cpu(sbi->nova_sb->s_magic), NOVA_SUPER_MAGIC);
 		goto out;
 	}
+	nova_dbg_verbose("%s: nova meta size %#llx, data size %#llx\n",
+			 __func__, sbi->nova_sb->s_meta_size,
+			 sbi->nova_sb->s_data_size);
 
 	/* Recover journal.
 	 * Just check the entry vaildity, not undo invaild journal.

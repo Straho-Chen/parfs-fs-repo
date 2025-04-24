@@ -176,6 +176,9 @@ void nova_init_blockmap(struct super_block *sb, int recovery)
 	/* Divide the block range among per-CPU free lists */
 	sbi->per_data_list_blocks = sbi->data_num_blocks / sbi->cpus;
 	sbi->per_meta_list_blocks = sbi->meta_num_blocks / sbi->cpus;
+	nova_dbg_verbose("%s: per data list blocks: %#lx, per meta: %#lx\n",
+			 __func__, sbi->per_data_list_blocks,
+			 sbi->per_meta_list_blocks);
 	for (i = 0; i < sbi->cpus; i++) {
 		free_list = nova_get_free_list(sb, i);
 		nova_init_free_list(sb, free_list, i);
