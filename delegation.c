@@ -199,7 +199,9 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 		NOVA_END_TIMING(ring_buffer_enque_w_t, ring_buffer_enque_time);
 	} while (ret == -EAGAIN);
 
+#if	NOVA_DELE_THREAD_SLEEP
 	wake_up_interruptible(&delegation_queue[socket][thread]);
+#endif
 
 	NOVA_END_TIMING(send_request_w_t, send_request_time);
 
