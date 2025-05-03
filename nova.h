@@ -259,6 +259,7 @@ static inline void memset_nt(void *dest, uint32_t dword, size_t length)
 }
 
 #include "super.h" // Remove when we factor out these and other functions.
+#include "ckpt.h"
 
 static inline unsigned long nova_get_numblocks(unsigned short btype)
 {

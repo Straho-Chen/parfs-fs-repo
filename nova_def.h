@@ -104,6 +104,7 @@ extern unsigned int nova_dbgmask;
 #define NOVA_DBGMASK_VERBOSE (0x00000010)
 #define NOVA_DBGMASK_TRANSACTION (0x00000020)
 #define NOVA_DBGMASK_DELEGATION (0x00000040)
+#define NOVA_DBGMASK_CKPT (0x00000080)
 
 #define nova_dbg_mmap4k(s, args...) \
 	((nova_dbgmask & NOVA_DBGMASK_MMAP4K) ? nova_dbg(s, args) : 0)
@@ -119,6 +120,9 @@ extern unsigned int nova_dbgmask;
 
 #define nova_dbg_delegation(s, args...) \
 	((nova_dbgmask & NOVA_DBGMASK_DELEGATION) ? nova_dbg(s, ##args) : 0)
+
+#define nova_dbg_ckpt(s, args...) \
+	((nova_dbgmask & NOVA_DBGMASK_CKPT) ? nova_dbg(s, ##args) : 0)
 
 #define NOVA_ASSERT(x)                                                      \
 	do {                                                                \

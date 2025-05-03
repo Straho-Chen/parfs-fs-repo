@@ -899,8 +899,13 @@ bool nova_verify_data_csum(struct super_block *sb,
 				match = false;
 				goto out;
 			} else {
+#if NOVA_XXHASH_CSUM
+				csum_calc =
+					xxh64(strip, strp_size, NOVA_INIT_CSUM);
+#else
 				csum_calc = nova_crc32c(NOVA_INIT_CSUM, strip,
 							strp_size);
+#endif
 				match = (csum_calc == csum_nvmm0) ||
 					(csum_calc == csum_nvmm1);
 			}

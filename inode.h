@@ -69,6 +69,13 @@ struct inode_table {
 	__le64 log_head;
 };
 
+struct old_entry {
+	struct list_head list;
+	u64 entry;
+	u64 start_pgoff;
+	int num_free;
+};
+
 /*
  * NOVA-specific inode state kept in DRAM
  */
@@ -99,6 +106,8 @@ struct nova_inode_info_header {
 	u64 alter_log_tail; /* Alternate log tail pointer */
 	u8 i_blk_type;
 	int nsocket;
+	u64 ckpt_id; /* Checkpoint ID */
+	struct old_entry* old_entry_list;
 };
 
 /* For rebuild purpose, temporarily store pi infomation */

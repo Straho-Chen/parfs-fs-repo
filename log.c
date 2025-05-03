@@ -853,6 +853,56 @@ out:
 	return ret;
 }
 
+void insert_old_entry(struct nova_inode_info_header *sih, u64 entry,
+		      u64 start_pgoff, int num_free)
+{
+	struct old_entry *old = NULL;
+	// add into old_entry_list
+	if (sih->old_entry_list == NULL) {
+		// init
+		sih->old_entry_list =
+			kmalloc(sizeof(struct old_entry), GFP_KERNEL);
+		sih->old_entry_list->entry = entry;
+		sih->old_entry_list->start_pgoff = start_pgoff;
+		sih->old_entry_list->num_free = num_free;
+		INIT_LIST_HEAD(&sih->old_entry_list->list);
+		nova_dbg_trans(
+			"%s: insert head: entry: %#llx, pgoff: %#llx, num_free: %d\n",
+			__func__, entry, start_pgoff, num_free);
+	} else {
+		// insert
+		old = kmalloc(sizeof(struct old_entry), GFP_KERNEL);
+		old->entry = entry;
+		old->start_pgoff = start_pgoff;
+		old->num_free = num_free;
+		list_add(&old->list, &sih->old_entry_list->list);
+		nova_dbg_trans(
+			"%s: insert entry: %#llx, pgoff: %#llx, num_free: %d\n",
+			__func__, entry, start_pgoff, num_free);
+	}
+}
+
+void free_old_entry(struct super_block *sb, struct nova_inode_info_header *sih,
+		    struct nova_file_write_entry *entryc)
+{
+	struct old_entry *old;
+	if (sih->old_entry_list) {
+		list_for_each_entry(old, &sih->old_entry_list->list, list) {
+			nova_free_old_entry(
+				sb, sih,
+				(struct nova_file_write_entry *)old->entry,
+				old->start_pgoff, old->num_free, true,
+				entryc->epoch_id);
+			nova_invalidate_write_entry(
+				sb, (struct nova_file_write_entry *)old->entry,
+				1, 0);
+			list_del(&old->list);
+		}
+		kfree(sih->old_entry_list);
+		sih->old_entry_list = NULL;
+	}
+}
+
 int nova_assign_write_entry(struct super_block *sb,
 			    struct nova_inode_info_header *sih,
 			    struct nova_file_write_entry *entry,
@@ -871,6 +921,8 @@ int nova_assign_write_entry(struct super_block *sb,
 	INIT_TIMING(assign_time);
 
 	NOVA_START_TIMING(assign_t, assign_time);
+	// free last old entry
+	free_old_entry(sb, sih, entryc);
 	for (i = 0; i < num; i++) {
 		curr_pgoff = start_pgoff + i;
 
@@ -886,13 +938,10 @@ int nova_assign_write_entry(struct super_block *sb,
 				 * so free the old one and store the new one to count the pages need to free
 				 */
 				if (start_old_entry && free)
-					nova_free_old_entry(sb, sih,
-							    start_old_entry,
-							    start_old_pgoff,
-							    num_free, false,
-							    entryc->epoch_id);
-				nova_invalidate_write_entry(sb, start_old_entry,
-							    1, 0);
+					insert_old_entry(sih,
+							 (u64)start_old_entry,
+							 start_old_pgoff,
+							 num_free);
 
 				start_old_entry = old_entry;
 				start_old_pgoff = curr_pgoff;
@@ -916,10 +965,8 @@ int nova_assign_write_entry(struct super_block *sb,
 	}
 
 	if (start_old_entry && free)
-		nova_free_old_entry(sb, sih, start_old_entry, start_old_pgoff,
-				    num_free, false, entryc->epoch_id);
-
-	nova_invalidate_write_entry(sb, start_old_entry, 1, 0);
+		insert_old_entry(sih, (u64)start_old_entry, start_old_pgoff,
+				 num_free);
 
 out:
 	NOVA_END_TIMING(assign_t, assign_time);

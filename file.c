@@ -1095,13 +1095,19 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		sih->i_size = pos;
 	}
 
-	sih->trans_id++;
 out:
 	if (data_csum > 0 || data_parity > 0) {
 		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
 		nova_complete_delegation(issued_cnt, completed_cnt);
 		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 	}
+	struct nova_ckpt_entry ckpt_entry;
+	ckpt_entry.ino = sih->ino;
+	ckpt_entry.latest_trans_id = sih->trans_id;
+	nova_ckpt_send_request(&sbi->ckpt->ring, &ckpt_entry,
+			       sizeof(struct nova_ckpt_entry));
+
+	sih->trans_id++;
 
 	if (ret < 0)
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
