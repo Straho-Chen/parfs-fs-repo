@@ -864,7 +864,8 @@ static int nova_free_inode_resource(struct super_block *sb,
 	pi->deleted = 1;
 
 	if (pi->valid) {
-		nova_dbg("%s: inode %lu still valid\n", __func__, sih->ino);
+		nova_dbg_verbose("%s: inode %lu still valid\n", __func__,
+				 sih->ino);
 		pi->valid = 0;
 	}
 	nova_update_inode_checksum(pi, 1);

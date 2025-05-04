@@ -1166,7 +1166,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				// TODO: in the POSIX mode, cksum should exclude size feild
 				// TODO: file_size might be changed to the [pgoff, pgoff+size]
 				entry->size = file_size;
-				nova_update_entry_csum(entry);
+				nova_flush_buffer(&entry->size, sizeof(u64), 1);
 			} else {
 				// otherwise, start a transaction
 				entry_info.type = FILE_WRITE;

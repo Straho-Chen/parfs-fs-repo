@@ -149,7 +149,7 @@ unsigned int nova_free_old_entry(struct super_block *sb,
 		entryc = entry;
 	else {
 		entryc = &entry_copy;
-		if (!nova_verify_entry_csum(sb, entry, entryc)) {
+		if (!nova_get_entry_copy(sb, entry, entryc)) {
 			nova_dbg_trans("%s: old entry checksum failed\n",
 				       __func__);
 			return -EIO;
