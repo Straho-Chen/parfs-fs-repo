@@ -440,10 +440,12 @@ static int nova_free_blocks(struct super_block *sb, unsigned long blocknr,
 	NOVA_START_TIMING(free_blocks_t, free_time);
 	if (log_page) {
 		cpuid = blocknr / sbi->per_meta_list_blocks;
+		nova_dbg_verbose("%s: meta %d freelist\n", __func__, cpuid);
 		free_list = nova_get_free_list(sb, cpuid);
 		sub_free_list = &free_list->meta_list;
 	} else {
 		cpuid = blocknr / sbi->per_data_list_blocks;
+		nova_dbg_verbose("%s: data %d freelist\n", __func__, cpuid);
 		free_list = nova_get_free_list(sb, cpuid);
 		sub_free_list = &free_list->data_list;
 	}

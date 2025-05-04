@@ -107,7 +107,7 @@ struct nova_inode_info_header {
 	u8 i_blk_type;
 	int nsocket;
 	u64 ckpt_id; /* Checkpoint ID */
-	struct old_entry* old_entry_list;
+	struct list_head old_entry_list;
 };
 
 /* For rebuild purpose, temporarily store pi infomation */

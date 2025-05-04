@@ -956,8 +956,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 		if (entry && inplace) {
 			nova_dbg_verbose(
-				"%s: inplace update; entry: %p, inplace: %d\n",
-				__func__, entry, inplace);
+				"%s: inplace update; entry: %#llx, inplace: %d\n",
+				__func__, (u64)entry, inplace);
 			/* We can do inplace write. Find contiguous blocks */
 			blocknr = get_nvmm(sb, sih, entryc, start_blk);
 			allocated = ent_blks;
@@ -967,8 +967,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			if (!entry)
 				fair_new = true;
 			nova_dbg_verbose(
-				"%s: no inplace update; entry: %p, inplace: %d, alloc new block\n",
-				__func__, entry, inplace);
+				"%s: no inplace update; entry: %#llx, inplace: %d, alloc new block\n",
+				__func__, (u64)entry, inplace);
 			/* Allocate blocks to fill hole */
 			allocated = nova_new_data_blocks(sb, sih, &blocknr,
 							 start_blk, num_blocks,
@@ -1158,11 +1158,15 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 			nova_complete_delegation(issued_cnt, completed_cnt);
 
+			nova_dbg_verbose(
+				"%s: atomic_update: %d, entry size: %#llx, file_size: %#llx\n",
+				__func__, atomic_update, entry->size,
+				file_size);
 			if (atomic_update == 1 && entry->size != file_size) {
 				// TODO: in the POSIX mode, cksum should exclude size feild
 				// TODO: file_size might be changed to the [pgoff, pgoff+size]
 				entry->size = file_size;
-				nova_flush_buffer(entry, sizeof(*entry), 1);
+				nova_update_entry_csum(entry);
 			} else {
 				// otherwise, start a transaction
 				entry_info.type = FILE_WRITE;

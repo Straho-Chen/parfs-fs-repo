@@ -1154,6 +1154,8 @@ ssize_t nova_cow_file_write(struct file *filp, const char __user *buf,
 				 __func__);
 		ret = do_nova_inplace_file_write(filp, buf, len, ppos);
 	} else {
+		nova_dbg_verbose("%s: pos: %llu, size: %llu\n", __func__, *ppos,
+				 i_size_read(inode));
 		ret = do_nova_cow_file_write(filp, buf, len, ppos);
 	}
 #else
@@ -1196,6 +1198,8 @@ static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 					 __func__);
 			return do_nova_inplace_file_write(filp, buf, len, ppos);
 		} else {
+			nova_dbg_verbose("%s: pos: %llu, size: %llu\n",
+					 __func__, *ppos, i_size_read(inode));
 			return do_nova_cow_file_write(filp, buf, len, ppos);
 		}
 #else
