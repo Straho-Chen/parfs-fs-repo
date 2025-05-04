@@ -265,7 +265,7 @@ static inline void nova_update_inode(struct super_block *sb,
 
 	if (!pic) {
 		// write to nvm directly
-		faf = 1;
+		faf = 0;
 		nova_update_tail(pi, update->tail, faf);
 		if (metadata_csum)
 			nova_update_alter_tail(pi, update->alter_tail, faf);
