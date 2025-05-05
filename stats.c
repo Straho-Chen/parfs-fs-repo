@@ -153,24 +153,22 @@ const char *Timingstring[TIMING_NUM] = {
 	"rebuild_snapshot_table",
 
 	/* Snapshot */
-	"=================== Snapshot ===================",
-	"create_snapshot",
-	"init_snapshot_info",
-	"delete_snapshot",
-	"append_snapshot_filedata",
-	"append_snapshot_inode",
+	// "=================== Snapshot ===================",
+	// "create_snapshot",
+	// "init_snapshot_info",
+	// "delete_snapshot",
+	// "append_snapshot_filedata",
+	// "append_snapshot_inode",
 
 	/* Delegation */
 	"=================== Delegation ===================",
 	"read_do_delegation",
 	"read_prefault",
 	"read_send_request",
-	"read_ring_buffer_enque",
 	"read_finish_delegation",
 	"write_do_delegation",
 	"write_prefault",
 	"write_send_request",
-	"write_ring_buffer_enque",
 	"write_finish_delegation",
 
 	/* IO Agent */
@@ -287,14 +285,10 @@ static void nova_print_meta_stats(struct super_block *sb)
 {
 	nova_info("=========== NOVA meta stats ===========\n");
 	nova_info("write_total: %llu\n", Timingmetastats[bd_cow_write_t]);
-	// nova_info("write_meta: %llu\n", Timingmetastats[bd_cow_write_t] -
-	// 					Timingmetastats[bd_memcpy_w_t]);
-	// nova_info("write_data: %llu\n", Timingmetastats[bd_memcpy_w_t]);
-
-	// nova_info("read_total: %llu\n", Timingmetastats[bd_dax_read_t]);
-	// nova_info("read_meta: %llu\n", Timingmetastats[bd_dax_read_t] -
-	// 				       Timingmetastats[bd_memcpy_r_t]);
-	// nova_info("read_data: %llu\n", Timingmetastats[bd_memcpy_r_t]);
+	nova_info("write_meta: %llu\n",
+		  Timingmetastats[bd_cow_write_t] -
+			  Timingmetastats[bd_wait_data_t]);
+	nova_info("write_data: %llu\n", Timingmetastats[bd_cow_write_t]);
 }
 
 void nova_get_timing_stats(void)
