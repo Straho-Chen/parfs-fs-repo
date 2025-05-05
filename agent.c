@@ -267,8 +267,8 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 				    kaddr);
 
 #if NOVA_NT_STORE
-		memcpy_to_pmem_nocache((void *)kaddr, (void *)tasks[i].kuaddr,
-				       tasks[i].size);
+		memcpy_to_pmem_avx_nocache(
+			(void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
 #else
 		memcpy((void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
 #endif

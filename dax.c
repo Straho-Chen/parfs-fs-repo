@@ -1096,22 +1096,22 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
-		if (need_cksum) {
-			if (data_csum > 0 || data_parity > 0) {
-/* calculate data checksum and write csum to pmem */
-#if NOVA_KERNEL_COPY_USER_BUFFER
-				ret = nova_protect_file_data(sb, inode, pos,
-							     bytes, ubuf_copy,
-							     blocknr);
-#else
-				ret = nova_protect_file_data(sb, inode, pos,
-							     bytes, (char *)buf,
-							     blocknr);
-#endif
-				if (ret)
-					goto out;
-			}
-		}
+		// 		if (need_cksum) {
+		// 			if (data_csum > 0 || data_parity > 0) {
+		// /* calculate data checksum and write csum to pmem */
+		// #if NOVA_KERNEL_COPY_USER_BUFFER
+		// 				ret = nova_protect_file_data(sb, inode, pos,
+		// 							     bytes, ubuf_copy,
+		// 							     blocknr);
+		// #else
+		// 				ret = nova_protect_file_data(sb, inode, pos,
+		// 							     bytes, (char *)buf,
+		// 							     blocknr);
+		// #endif
+		// 				if (ret)
+		// 					goto out;
+		// 			}
+		// 		}
 
 		if (pos + copied > inode->i_size)
 			file_size = cpu_to_le64(pos + copied);
