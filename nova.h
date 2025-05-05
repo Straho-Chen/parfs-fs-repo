@@ -975,7 +975,8 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 					int socket, int zero, int flush_cache,
 					int sfence, long *issued_cnt,
 					struct nova_notifyer *completed_cnt,
-					int wait_hint)
+					int wait_hint, bool try_do_dele,
+					bool *is_dele)
 {
 	size_t left;
 	unsigned long irq_flags = 0;
@@ -983,7 +984,7 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 	INIT_TIMING(delegation_time);
 
 	nova_memunlock_range(sb, kmem_dest, bytes, &irq_flags);
-	if (bytes < NOVA_WRITE_DELEGATION_LIMIT) {
+	if (bytes < write_dele_size || !try_do_dele) {
 		nova_dbg_delegation("less than delegation limit\n");
 		NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
 		if (zero) {
@@ -998,6 +999,8 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			left = memcpy_to_pmem_nocache(kmem_dest, kubuf_src,
 						      bytes);
 		}
+		if (is_dele)
+			*is_dele = false;
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
 		nova_dbg_delegation("do delegation\n");
@@ -1008,6 +1011,8 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 						socket, zero, flush_cache,
 						sfence, issued_cnt,
 						completed_cnt, wait_hint);
+		if (is_dele)
+			*is_dele = true;
 		NOVA_END_TIMING(do_delegation_w_t, delegation_time);
 	}
 	nova_memlock_range(sb, kmem_dest, bytes, &irq_flags);
@@ -1125,7 +1130,8 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 				 unsigned long blocknr, void *ubuf_copy,
 				 int *head, int *tail, int *head_eq_tail,
 				 int append, long *issued_cnt,
-				 struct nova_notifyer *completed_cnt);
+				 struct nova_notifyer *completed_cnt,
+				 bool try_do_dele, bool *is_dele);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 			   loff_t pos, size_t count, char *ubuf_copy,
 			   unsigned long blocknr);

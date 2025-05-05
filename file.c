@@ -905,12 +905,12 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			ret = nova_handle_head_tail_blocks(
 				sb, inode, pos, bytes, blocknr, ubuf_copy,
 				&head, &tail, &head_eq_tail, 0, issued_cnt,
-				completed_cnt);
+				completed_cnt, true, NULL);
 #else
 			ret = nova_handle_head_tail_blocks(
 				sb, inode, pos, bytes, blocknr, (char *)buf,
 				&head, &tail, &head_eq_tail, 0, issued_cnt,
-				completed_cnt);
+				completed_cnt, true, NULL);
 #endif
 
 			if (ret)
@@ -959,16 +959,16 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				(void *)(ubuf_copy + ubuf_head_copied +
 					 delegation_size * i),
 				delegation_size, 0, socket, 0, 1, 0, issued_cnt,
-				completed_cnt,
-				len >= NOVA_WRITE_WAIT_THRESHOLD);
+				completed_cnt, len >= NOVA_WRITE_WAIT_THRESHOLD,
+				true, NULL);
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem,
 				(void *)(buf + ubuf_head_copied +
 					 delegation_size * i),
 				delegation_size, 0, socket, 0, 1, 0, issued_cnt,
-				completed_cnt,
-				len >= NOVA_WRITE_WAIT_THRESHOLD);
+				completed_cnt, len >= NOVA_WRITE_WAIT_THRESHOLD,
+				true, &is_dele);
 #endif
 		}
 		if (copied) {
@@ -994,6 +994,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
+		// we do data csum on cow write, no need is_dele check
 		if (data_csum > 0 || data_parity > 0) {
 /* calculate data checksum and write csum to pmem */
 #if NOVA_KERNEL_COPY_USER_BUFFER

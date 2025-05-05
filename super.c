@@ -51,6 +51,7 @@ int data_csum;
 int data_parity;
 int dram_struct_csum;
 int support_clwb;
+int write_dele_size;
 
 module_param(measure_timing, int, 0444);
 MODULE_PARM_DESC(measure_timing, "Timing measurement");
@@ -82,6 +83,10 @@ MODULE_PARM_DESC(nova_dbgmask, "Control debugging output");
 module_param(nova_dele_thrds, int, 0444);
 MODULE_PARM_DESC(nova_dele_thrds,
 		 "The number of per socket delegation threads");
+
+module_param(write_dele_size, int, 0444);
+MODULE_PARM_DESC(write_dele_size,
+		 "The size to decide when to do write delegation");
 
 static struct super_operations nova_sops;
 static const struct export_operations nova_export_ops;
@@ -391,6 +396,7 @@ enum {
 	Opt_err_ro,
 	Opt_dbgmask,
 	Opt_dele_thrds,
+	Opt_write_dele_size,
 	Opt_err
 };
 
@@ -408,7 +414,8 @@ static const match_table_t tokens = {
 	{ Opt_err_panic, "errors=panic" },
 	{ Opt_err_ro, "errors=remount-ro" },
 	{ Opt_dbgmask, "dbgmask=%u" },
-	{ Opt_dele_thrds, "dele_thrds=%u" },
+	{ Opt_dele_thrds, "dele_thrds=%d" },
+	{ Opt_write_dele_size, "write_dele_size=%d" },
 	{ Opt_err, NULL },
 };
 
@@ -505,6 +512,11 @@ static int nova_parse_options(char *options, struct nova_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			nova_dele_thrds = option;
+			break;
+		case Opt_write_dele_size:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			write_dele_size = option;
 			break;
 		default: {
 			goto bad_opt;
@@ -723,6 +735,9 @@ static inline void set_default_opts(struct nova_sb_info *sbi)
 	sbi->blocksize = PAGE_SIZE;
 	sbi->blocksize_bits = PAGE_SHIFT;
 	nova_set_blocksize(sbi->sb, sbi->blocksize);
+	if (!write_dele_size) {
+		write_dele_size = NOVA_WRITE_DELEGATION_LIMIT;
+	}
 }
 
 static void nova_root_check(struct super_block *sb, struct nova_inode *root_pi)
@@ -863,9 +878,9 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	nova_dbg(
-		"measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d\n",
+		"measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d, write_dele_size: %d\n",
 		measure_timing, metadata_csum, wprotect, data_csum, data_parity,
-		dram_struct_csum);
+		dram_struct_csum, write_dele_size);
 
 	get_random_bytes(&random, sizeof(u32));
 	atomic_set(&sbi->next_generation, random);
