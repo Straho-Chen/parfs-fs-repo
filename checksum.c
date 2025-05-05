@@ -899,8 +899,13 @@ bool nova_verify_data_csum(struct super_block *sb,
 				match = false;
 				goto out;
 			} else {
+#if NOVA_XXHASH_CSUM
+				csum_calc =
+					xxh64(strip, strp_size, NOVA_INIT_CSUM);
+#else
 				csum_calc = nova_crc32c(NOVA_INIT_CSUM, strip,
 							strp_size);
+#endif
 				match = (csum_calc == csum_nvmm0) ||
 					(csum_calc == csum_nvmm1);
 			}
@@ -979,19 +984,19 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 {
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
-	unsigned long pgoff, length;
-	u64 nvmm, nvmm_off;
+	unsigned long pgoff, length, blocknr;
+	u64 nvmm;
 	char *nvmm_addr, *block;
 	int ret = 0;
 
 	pgoff = newsize >> nova_inode_blk_shift(sih);
 
-	nvmm = get_nvmm(sb, sih, NULL, pgoff);
-	if (nvmm == 0)
-		return -EFAULT;
-	nvmm_off = nova_get_block_off(sb, nvmm, sih->i_blk_type, 0);
-
+	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
 	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
+	blocknr = nova_get_blocknr(sb, nvmm, sih->i_blk_type);
+
+	nova_dbg_verbose("%s: nvmm: %#llx, nvmm_addr: %#llx, blocknr: %#lx\n",
+			 __func__, nvmm, (u64)nvmm_addr, blocknr);
 
 	length = nova_inode_blk_size(sih);
 
@@ -1007,7 +1012,7 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 		goto out;
 	}
 
-	nova_update_block_csum(sb, length, nvmm, nvmm_addr, 0);
+	nova_update_block_csum(sb, length, blocknr, block, 0);
 
 out:
 	if (block != NULL)

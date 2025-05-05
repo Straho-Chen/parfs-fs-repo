@@ -301,6 +301,8 @@ int nova_delete_file_tree(struct super_block *sb,
 
 	entryc = (metadata_csum == 0) ? entry : &entry_copy;
 
+	free_old_entry(sb, sih, entryc);
+
 	/* Handle EOF blocks */
 	do {
 		entry = radix_tree_lookup(&sih->tree, pgoff);
@@ -862,7 +864,8 @@ static int nova_free_inode_resource(struct super_block *sb,
 	pi->deleted = 1;
 
 	if (pi->valid) {
-		nova_dbg("%s: inode %lu still valid\n", __func__, sih->ino);
+		nova_dbg_verbose("%s: inode %lu still valid\n", __func__,
+				 sih->ino);
 		pi->valid = 0;
 	}
 	nova_update_inode_checksum(pi, 1);

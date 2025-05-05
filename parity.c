@@ -405,8 +405,6 @@ int nova_update_truncated_block_parity(struct super_block *sb,
 	pgoff = newsize >> nova_inode_blk_shift(sih);
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
-	if (nvmm == 0)
-		return -EFAULT;
 
 	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
 

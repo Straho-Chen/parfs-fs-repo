@@ -488,9 +488,6 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 	size_t data_block_size = nova_inode_blk_size(sih);
 	int socket;
 
-	size_t loop_copied;
-	unsigned long blknr_loop;
-
 	INIT_TIMING(fini_delegation_time);
 
 	int cond_cnt = 0;
@@ -522,6 +519,8 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 
 	if (len > isize - pos)
 		len = isize - pos;
+
+	nova_dbg_verbose("%s: set len to %lu\n", __func__, len);
 
 	if (len <= 0)
 		goto out;
@@ -596,6 +595,7 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 			return -EINVAL;
 		}
 		// do read in block granularity
+		// nr is keep in the same entry range
 		if (entryc->reassigned == 0) {
 			nr = (entryc->num_pages - (index - entryc->pgoff)) *
 			     data_block_size;
@@ -607,14 +607,15 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 		if (nr > len - copied)
 			nr = len - copied;
 
-		loop_copied = 0;
-		blknr_loop = index;
-		while (loop_copied < nr) {
+		while (nr + offset >= data_block_size) {
+			nova_dbg_verbose("%s: nr: %lu, copy a data block\n",
+					 __func__, nr);
 			nvmm = get_nvmm(sb, sih, entryc, index);
 			socket = nova_block_to_socket(sbi, nvmm,
 						      sih->i_blk_type, 0);
-			nova_dbg_verbose("%s: nvmm: %#lx, socket: %d\n",
-					 __func__, nvmm, socket);
+			nova_dbg_verbose(
+				"%s: tail block nvmm: %#lx, socket: %d, index: %lu\n",
+				__func__, nvmm, socket, index);
 			dax_mem = nova_get_virt_addr_from_offset(
 				sb,
 				nova_get_block_off(sb, nvmm, sih->i_blk_type,
@@ -627,8 +628,41 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 				index, nr, offset);
 
 			left = do_nova_nvmm_read(
-				sb, buf + loop_copied + copied,
-				dax_mem + offset, data_block_size - offset, 0,
+				sb, buf + copied, dax_mem + offset,
+				data_block_size - offset, 0, socket, zero,
+				issued_cnt, completed_cnt,
+				len >= NOVA_READ_WAIT_THRESHOLD);
+
+			if (left) {
+				nova_dbg("%s ERROR!: bytes %#lx, left %#lx\n",
+					 __func__, nr, left);
+				error = -EFAULT;
+				goto out;
+			}
+			copied += (data_block_size - offset);
+			nr -= (data_block_size - offset);
+			offset += (data_block_size - offset);
+			index += offset >> data_bits;
+			offset &= blocksize_mask;
+		}
+		if (nr != 0) {
+			// tail block
+			nova_dbg_verbose("%s: nr: %lu, tail block\n", __func__,
+					 nr);
+			nvmm = get_nvmm(sb, sih, entryc, index);
+			socket = nova_block_to_socket(sbi, nvmm,
+						      sih->i_blk_type, 0);
+			nova_dbg_verbose(
+				"%s: tail block nvmm: %#lx, socket: %d, index: %lu\n",
+				__func__, nvmm, socket, index);
+			dax_mem = nova_get_virt_addr_from_offset(
+				sb,
+				nova_get_block_off(sb, nvmm, sih->i_blk_type,
+						   0),
+				0);
+
+			left = do_nova_nvmm_read(
+				sb, buf + copied, dax_mem + offset, nr, 0,
 				socket, zero, issued_cnt, completed_cnt,
 				len >= NOVA_READ_WAIT_THRESHOLD);
 
@@ -638,13 +672,12 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 				error = -EFAULT;
 				goto out;
 			}
-			loop_copied += (data_block_size - left);
-			offset += (data_block_size - left);
+			copied += (nr - left);
+			nr -= (nr - left);
+			offset += (nr - left);
 			index += offset >> data_bits;
 			offset &= blocksize_mask;
 		}
-
-		copied += nr;
 
 		cond_cnt++;
 		if (cond_cnt >= NOVA_APP_RING_BUFFER_CHECK_COUNT) {
@@ -679,14 +712,11 @@ static ssize_t nova_dax_file_read(struct file *filp, char __user *buf,
 	struct inode *inode = filp->f_mapping->host;
 	ssize_t res;
 	INIT_TIMING(dax_read_time);
-	INIT_TIMING(bd_read_time);
 
 	NOVA_START_TIMING(dax_read_t, dax_read_time);
-	NOVA_START_META_TIMING(bd_dax_read_t, bd_read_time);
 	inode_lock_shared(inode);
 	res = do_dax_mapping_read(filp, buf, len, ppos);
 	inode_unlock_shared(inode);
-	NOVA_END_META_TIMING(bd_dax_read_t, bd_read_time);
 	NOVA_END_TIMING(dax_read_t, dax_read_time);
 	return res;
 }
@@ -1065,13 +1095,21 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		sih->i_size = pos;
 	}
 
-	sih->trans_id++;
 out:
 	if (data_csum > 0 || data_parity > 0) {
 		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+		NOVA_START_META_TIMING(bd_wait_data_t, fini_delegation_time);
 		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_META_TIMING(bd_wait_data_t, fini_delegation_time);
 		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 	}
+	struct nova_ckpt_entry ckpt_entry;
+	ckpt_entry.ino = sih->ino;
+	ckpt_entry.latest_trans_id = sih->trans_id;
+	nova_ckpt_send_request(&sbi->ckpt->ring, &ckpt_entry,
+			       sizeof(struct nova_ckpt_entry));
+
+	sih->trans_id++;
 
 	if (ret < 0)
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
@@ -1118,6 +1156,8 @@ ssize_t nova_cow_file_write(struct file *filp, const char __user *buf,
 				 __func__);
 		ret = do_nova_inplace_file_write(filp, buf, len, ppos);
 	} else {
+		nova_dbg_verbose("%s: pos: %llu, size: %llu\n", __func__, *ppos,
+				 i_size_read(inode));
 		ret = do_nova_cow_file_write(filp, buf, len, ppos);
 	}
 #else
@@ -1160,6 +1200,8 @@ static ssize_t do_nova_dax_file_write(struct file *filp, const char __user *buf,
 					 __func__);
 			return do_nova_inplace_file_write(filp, buf, len, ppos);
 		} else {
+			nova_dbg_verbose("%s: pos: %llu, size: %llu\n",
+					 __func__, *ppos, i_size_read(inode));
 			return do_nova_cow_file_write(filp, buf, len, ppos);
 		}
 #else

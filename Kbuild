@@ -6,7 +6,7 @@ parfs-objs := $(addprefix $(SRC_ROOT)/solros_lib/, \
                  ring_buffer.o)
 
 parfs-objs += balloc.o bbuild.o checksum.o dax.o dir.o file.o gc.o inode.o ioctl.o \
-	journal.o log.o mprotect.o namei.o parity.o rebuild.o snapshot.o stats.o \
+	journal.o log.o mprotect.o namei.o parity.o rebuild.o snapshot.o ckpt.o stats.o \
 	pmem_ar_block.o agent.o delegation.o fifo.o ring.o super.o symlink.o sysfs.o perf.o
 
 

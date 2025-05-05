@@ -635,6 +635,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	pi->nova_ino = NOVA_META_BLOCKNODE_INO;
 	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
 
+	pi = nova_get_inode_by_ino(sb, NOVA_CKPT_INO);
+	pi->nova_ino = NOVA_CKPT_INO;
+	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
+
 	pi = nova_get_inode_by_ino(sb, NOVA_SNAPSHOT_INO);
 	pi->nova_ino = NOVA_SNAPSHOT_INO;
 	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
@@ -646,6 +650,8 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	nova_memlock_reserved(sb, super, &irq_flags);
 
 	nova_init_blockmap(sb, 0);
+
+	nova_ckpt_init(sb);
 
 	if (nova_lite_journal_hard_init(sb) < 0) {
 		nova_err(sb, "Lite journal hard initialization failed\n");
@@ -665,6 +671,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	sbi->nova_sb->s_metadata_csum = metadata_csum;
 	sbi->nova_sb->s_data_csum = data_csum;
 	sbi->nova_sb->s_data_parity = data_parity;
+	sbi->nova_sb->s_meta_size =
+		cpu_to_le64(sbi->meta_num_blocks << PAGE_SHIFT);
+	sbi->nova_sb->s_data_size =
+		cpu_to_le64(sbi->data_num_blocks << PAGE_SHIFT);
 	nova_update_super_crc(sb);
 
 	nova_sync_super(sb);
@@ -954,6 +964,9 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 			 le32_to_cpu(sbi->nova_sb->s_magic), NOVA_SUPER_MAGIC);
 		goto out;
 	}
+	nova_dbg_verbose("%s: nova meta size %#llx, data size %#llx\n",
+			 __func__, sbi->nova_sb->s_meta_size,
+			 sbi->nova_sb->s_data_size);
 
 	/* Recover journal.
 	 * Just check the entry vaildity, not undo invaild journal.
@@ -1043,6 +1056,12 @@ setup_sb:
 
 	sbi->delegation_ready = 1;
 
+	retval = nova_init_ckpt_thread(sb);
+	if (retval) {
+		nova_err(sb, "Failed to initialize checkpoint thread\n");
+		goto out;
+	}
+
 	nova_print_curr_epoch_id(sb);
 
 	retval = 0;
@@ -1055,6 +1074,8 @@ out:
 		kmem_cache_free(nova_inode_cachep, sbi->snapshot_si);
 		sbi->snapshot_si = NULL;
 	}
+	kfree(sbi->ckpt);
+	sbi->ckpt = NULL;
 
 	kfree(sbi->zeroed_page);
 	sbi->zeroed_page = NULL;
@@ -1168,6 +1189,7 @@ static void nova_put_super(struct super_block *sb)
 
 	nova_agents_fini();
 	nova_fini_ring_buffers();
+	nova_ckpt_thread_fini();
 
 	if (measure_timing || measure_meta_timing) {
 		nova_print_timing_stats(sb);

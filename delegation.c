@@ -29,7 +29,6 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 	int thread;
 	INIT_TIMING(prefault_time);
 	INIT_TIMING(send_request_time);
-	INIT_TIMING(ring_buffer_enque_time);
 
 	/* TODO: Check the validity of the user-level address */
 
@@ -90,14 +89,13 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 	NOVA_START_TIMING(send_request_r_t, send_request_time);
 	do {
 		thread = nova_choose_rings();
-		NOVA_START_TIMING(ring_buffer_enque_r_t,
-				  ring_buffer_enque_time);
 		ret = nova_send_request(nova_ring_buffer[socket][thread],
 					&request);
-		NOVA_END_TIMING(ring_buffer_enque_r_t, ring_buffer_enque_time);
 	} while (ret == -EAGAIN);
 
+#if NOVA_DELE_THREAD_SLEEP
 	wake_up_interruptible(&delegation_queue[socket][thread]);
+#endif
 
 	NOVA_END_TIMING(send_request_r_t, send_request_time);
 
@@ -121,7 +119,6 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	int thread;
 
 	INIT_TIMING(send_request_time);
-	INIT_TIMING(ring_buffer_enque_time);
 
 	/*
 	 * We copy user buffer into kernel buffer on main thread.
@@ -192,14 +189,13 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	NOVA_START_TIMING(send_request_w_t, send_request_time);
 	do {
 		thread = nova_choose_rings();
-		NOVA_START_TIMING(ring_buffer_enque_w_t,
-				  ring_buffer_enque_time);
 		ret = nova_send_request(nova_ring_buffer[socket][thread],
 					&request);
-		NOVA_END_TIMING(ring_buffer_enque_w_t, ring_buffer_enque_time);
 	} while (ret == -EAGAIN);
 
+#if NOVA_DELE_THREAD_SLEEP
 	wake_up_interruptible(&delegation_queue[socket][thread]);
+#endif
 
 	NOVA_END_TIMING(send_request_w_t, send_request_time);
 

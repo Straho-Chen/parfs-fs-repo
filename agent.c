@@ -174,7 +174,6 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
 	INIT_TIMING(memcpy_time);
-	INIT_TIMING(bd_memcpy_time);
 
 	INIT_TIMING(address_translation_time);
 	NOVA_START_TIMING(agent_addr_trans_r_t, address_translation_time);
@@ -187,7 +186,6 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 			    kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_r_t, memcpy_time);
-	NOVA_START_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
 
 	for (i = 0; i < tasks_index; i++) {
 		if (zero) {
@@ -204,7 +202,6 @@ static void do_read_request(struct mm_struct *mm, unsigned long kaddr,
 		}
 	}
 
-	NOVA_END_META_TIMING(bd_memcpy_r_t, bd_memcpy_time);
 	NOVA_END_TIMING(agent_memcpy_r_t, memcpy_time);
 
 out:
@@ -233,7 +230,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 	struct nova_agent_tasks tasks[NOVA_AGENT_TASK_MAX_SIZE];
 
 	INIT_TIMING(memcpy_time);
-	INIT_TIMING(bd_memcpy_time);
 
 	frag = bytes / NOVA_AGENT_FRAG_SIZE;
 
@@ -241,13 +237,11 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 		nova_dbg_delegation("%s: zero, flush_cache:%d\n", __func__,
 				    flush_cache);
 		NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
-		NOVA_START_META_TIMING(bd_memcpy_w_t, bd_memcpy_time);
 		if (flush_cache)
 			memset_nt((void *)kaddr, 0, bytes);
 		else
 			memset((void *)kaddr, 0, bytes);
 
-		NOVA_END_META_TIMING(bd_memcpy_w_t, bd_memcpy_time);
 		NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);
 		goto out;
 	}
@@ -265,7 +259,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			    __func__, kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
-	NOVA_START_META_TIMING(bd_memcpy_w_t, bd_memcpy_time);
 
 #if !NOVA_KERNEL_COPY_USER_BUFFER
 	for (i = 0; i < tasks_index; i++) {
@@ -313,7 +306,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 #endif
 
-	NOVA_END_META_TIMING(bd_memcpy_w_t, bd_memcpy_time);
 	NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);
 
 out:
