@@ -1156,7 +1156,11 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			if (entry->size != file_size)
 				atomic_update += 1;
 
+			NOVA_START_META_TIMING(bd_wait_data_t,
+					       fini_delegation_time);
 			nova_complete_delegation(issued_cnt, completed_cnt);
+			NOVA_END_META_TIMING(bd_wait_data_t,
+					     fini_delegation_time);
 
 			nova_dbg_verbose(
 				"%s: atomic_update: %d, entry size: %#llx, file_size: %#llx\n",
@@ -1249,8 +1253,11 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 out:
 	NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+	NOVA_START_META_TIMING(bd_wait_data_t, fini_delegation_time);
 	if (need_cksum)
 		nova_complete_delegation(issued_cnt, completed_cnt);
+	NOVA_END_META_TIMING(bd_wait_data_t, fini_delegation_time);
+	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 
 	struct nova_ckpt_entry ckpt_entry;
 	ckpt_entry.ino = sih->ino;
@@ -1259,7 +1266,7 @@ out:
 			       sizeof(struct nova_ckpt_entry));
 
 	sih->trans_id++;
-	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
+
 	if (ret < 0)
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
 					      begin_tail, update.tail);
