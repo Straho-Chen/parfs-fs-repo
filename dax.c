@@ -802,6 +802,30 @@ void check_alter_pages(struct super_block *sb, u64 curr_p)
 	}
 }
 
+static int nova_partial_csum_xxhash(struct super_block *sb,
+				    unsigned long blocknr, u8 *block,
+				    size_t size)
+{
+	void *csum_addr, *csum_addr1;
+	u64 csum;
+	unsigned long irq_flags = 0;
+
+	/*
+	 * 4K aligned data page has one stripe
+	 * calculate checksum for one stripe at a time
+	 */
+	csum = xxh64(block, size, NOVA_INIT_CSUM);
+
+	csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+	csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
+
+	nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, &irq_flags);
+	memcpy_to_pmem_nocache(csum_addr, &csum, NOVA_DATA_CSUM_LEN);
+	memcpy_to_pmem_nocache(csum_addr1, &csum, NOVA_DATA_CSUM_LEN);
+	nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, &irq_flags);
+	return 0;
+}
+
 /*
  * Do an inplace write.  This function assumes that the lock on the inode is
  * already held.
@@ -1108,16 +1132,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 		if (hole_fill || is_dele) {
 			if (data_csum > 0 || data_parity > 0) {
-/* calculate data checksum and write csum to pmem */
-#if NOVA_KERNEL_COPY_USER_BUFFER
-				ret = nova_protect_file_data(sb, inode, pos,
-							     bytes, ubuf_copy,
-							     blocknr);
-#else
-				ret = nova_protect_file_data(sb, inode, pos,
-							     bytes, (char *)buf,
-							     blocknr);
-#endif
+				ret = nova_partial_csum_xxhash(
+					sb, blocknr, ubuf_copy, bytes);
 				if (ret)
 					goto out;
 			}
