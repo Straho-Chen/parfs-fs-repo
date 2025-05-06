@@ -918,7 +918,6 @@ int nova_assign_write_entry(struct super_block *sb,
 	NOVA_START_TIMING(assign_t, assign_time);
 	// free last old entry
 	free_old_entry(sb, sih, entryc);
-	nova_dbg_verbose("%s: free old finished\n", __func__);
 	for (i = 0; i < num; i++) {
 		curr_pgoff = start_pgoff + i;
 

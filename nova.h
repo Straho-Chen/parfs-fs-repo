@@ -985,7 +985,7 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 
 	nova_memunlock_range(sb, kmem_dest, bytes, &irq_flags);
 	if (bytes < write_dele_size || !try_do_dele) {
-		nova_dbg_delegation("less than delegation limit\n");
+		nova_dbg_verbose("less than delegation limit\n");
 		NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
 		if (zero) {
 			nova_dbg_delegation("do memset_nt to fill zero\n");
@@ -1003,7 +1003,7 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			*is_dele = false;
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
-		nova_dbg_delegation("do delegation\n");
+		nova_dbg_verbose("do delegation\n");
 		NOVA_START_TIMING(do_delegation_w_t, delegation_time);
 		left = nova_do_write_delegation(NOVA_SB(sb), current->mm,
 						(unsigned long)kubuf_src,

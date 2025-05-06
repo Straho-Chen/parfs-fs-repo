@@ -946,9 +946,9 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	update.tail = sih->log_tail;
 	update.alter_tail = sih->alter_log_tail;
 
+	is_dele = false;
 	while (num_blocks > 0) {
 		hole_fill = false;
-		is_dele = false;
 		offset = pos & blocksize_mask;
 		start_blk = pos >> data_bits;
 
@@ -1036,8 +1036,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail,
-					&head_eq_tail, 1, issued_cnt, hole_fill,
-					completed_cnt, &is_dele);
+					&head_eq_tail, 1, issued_cnt,
+					completed_cnt, hole_fill, &is_dele);
 #endif
 			}
 			if (ret)
@@ -1106,7 +1106,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
-		if (hole_fill && is_dele) {
+		if (hole_fill || is_dele) {
 			if (data_csum > 0 || data_parity > 0) {
 /* calculate data checksum and write csum to pmem */
 #if NOVA_KERNEL_COPY_USER_BUFFER
@@ -1186,9 +1186,6 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				nova_inplace_update_write_entry(
 					sb, inode, entry, &entry_info);
 			}
-			memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
-			memset(completed_cnt, 0,
-			       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
 		}
 
 		nova_dbg_verbose("Write: %p, %#lx\n", kmem, copied);
@@ -1258,7 +1255,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 out:
 	NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
 	NOVA_START_META_TIMING(bd_wait_data_t, fini_delegation_time);
-	if (hole_fill)
+	if (is_dele)
 		nova_complete_delegation(issued_cnt, completed_cnt);
 	NOVA_END_META_TIMING(bd_wait_data_t, fini_delegation_time);
 	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
