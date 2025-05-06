@@ -968,7 +968,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 					 delegation_size * i),
 				delegation_size, 0, socket, 0, 1, 0, issued_cnt,
 				completed_cnt, len >= NOVA_WRITE_WAIT_THRESHOLD,
-				true, &is_dele);
+				true, NULL);
 #endif
 		}
 		if (copied) {

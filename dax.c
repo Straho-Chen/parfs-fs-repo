@@ -1022,7 +1022,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail,
 					&head_eq_tail, append, issued_cnt,
-					hole_fill, completed_cnt, &is_dele);
+					completed_cnt, hole_fill, &is_dele);
 #endif
 			} else {
 // just do copy, no cow
