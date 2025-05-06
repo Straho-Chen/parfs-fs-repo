@@ -1071,8 +1071,8 @@ alloc:
 				// allocated blocks should be contigrous on a single nvm
 				do_nova_nvmm_write(sb, bp, NULL, blocksize,
 						   meta, socket, zero, 1, 0,
-						   issued_cnt, completed_cnt,
-						   0);
+						   issued_cnt, completed_cnt, 0,
+						   true, NULL);
 				nova_memlock_range(sb, bp, blocksize,
 						   &irq_flags);
 				cond_cnt++;

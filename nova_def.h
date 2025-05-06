@@ -180,6 +180,7 @@ extern int wprotect;
 extern int data_csum;
 extern int data_parity;
 extern int dram_struct_csum;
+extern int write_dele_size;
 
 /* wait queue for delegation threads */
 extern wait_queue_head_t delegation_queue[NOVA_MAX_SOCKET]
