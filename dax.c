@@ -1030,14 +1030,14 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, &head_eq_tail,
-					1, issued_cnt, completed_cnt, hole_fill,
+					1, issued_cnt, completed_cnt, true,
 					&is_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail,
 					&head_eq_tail, 1, issued_cnt,
-					completed_cnt, hole_fill, &is_dele);
+					completed_cnt, true, &is_dele);
 #endif
 			}
 			if (ret)
@@ -1165,6 +1165,16 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				atomic_update += 1;
 			if (entry->size != file_size)
 				atomic_update += 1;
+
+			if (is_dele) {
+				nova_complete_delegation(issued_cnt,
+							 completed_cnt);
+				memset(issued_cnt, 0,
+				       sizeof(long) * NOVA_MAX_SOCKET);
+				memset(completed_cnt, 0,
+				       sizeof(struct nova_notifyer) *
+					       NOVA_MAX_SOCKET);
+			}
 
 			nova_dbg_verbose(
 				"%s: atomic_update: %d, entry size: %#llx, file_size: %#llx\n",
