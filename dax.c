@@ -1275,11 +1275,13 @@ out:
 		nova_complete_delegation(issued_cnt, completed_cnt);
 	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 
+#if NOVA_CKPT
 	struct nova_ckpt_entry ckpt_entry;
 	ckpt_entry.ino = sih->ino;
 	ckpt_entry.latest_trans_id = sih->trans_id;
 	nova_ckpt_send_request(&sbi->ckpt->ring, &ckpt_entry,
 			       sizeof(struct nova_ckpt_entry));
+#endif
 
 	sih->trans_id++;
 

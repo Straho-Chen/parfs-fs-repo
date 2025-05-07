@@ -1190,7 +1190,11 @@ static int nova_traverse_file_inode_log(struct super_block *sb,
 	btype = pi->i_blk_type;
 	data_bits = blk_type_to_shift[btype];
 
+#if NOVA_CKPT
 	sih->ckpt_id = nova_get_ckpt_id(sbi->ckpt, sih->ino);
+#else
+	sih->ckpt_id = -1;
+#endif
 
 	if (metadata_csum)
 		nova_traverse_inode_log(sb, pi, bm, pi->alter_log_head);
@@ -1810,7 +1814,10 @@ int nova_recovery(struct super_block *sb)
 
 	/* initialize free list info */
 	nova_init_blockmap(sb, 1);
+
+#if NOVA_CKPT
 	nova_ckpt_restore(sb);
+#endif
 
 	value = nova_try_normal_recovery(sb);
 	if (value) {

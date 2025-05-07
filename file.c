@@ -1077,14 +1077,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	sih->i_blocks += (total_blocks << (data_bits - sb->s_blocksize_bits));
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
-		NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
+	NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
 // update inode (pi->log_tail); like Jc
 #if NOVA_INODE_IN_MEM
 	nova_update_inode(sb, inode, pi, &inode_copy, &update, 1);
 #else
 	nova_update_inode(sb, inode, pi, NULL, &update, 1);
 #endif
-		NOVA_END_META_TIMING(bd_meta_write_t, bd_meta_write_time);
+	NOVA_END_META_TIMING(bd_meta_write_t, bd_meta_write_time);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	/* Free the overlap blocks after the write is committed */
@@ -1111,11 +1111,14 @@ out:
 		nova_complete_delegation(issued_cnt, completed_cnt);
 		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 	}
+
+#if NOVA_CKPT
 	struct nova_ckpt_entry ckpt_entry;
 	ckpt_entry.ino = sih->ino;
 	ckpt_entry.latest_trans_id = sih->trans_id;
 	nova_ckpt_send_request(&sbi->ckpt->ring, &ckpt_entry,
 			       sizeof(struct nova_ckpt_entry));
+#endif
 
 	sih->trans_id++;
 
