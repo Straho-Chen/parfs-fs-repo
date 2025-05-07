@@ -1220,7 +1220,7 @@ again:
 
 	// TODO: scan until type == 0 which means we touch the end of log
 	// log tail is unreliable, so we need to scan until the end
-	while (true) {
+	while (curr_p != pi->log_tail) {
 		if (goto_next_page(sb, curr_p)) {
 			curr_p = next_log_page(sb, curr_p);
 			if (base == 0) {
@@ -1231,6 +1231,8 @@ again:
 
 		if (curr_p == 0) {
 			// the end of log, no next log page
+			nova_err(sb, "File inode %llu log is NULL!\n", ino);
+			BUG();
 			break;
 		}
 
@@ -1242,10 +1244,6 @@ again:
 			return 0;
 
 		type = nova_get_entry_type(entryc);
-		if (type == 0) {
-			// touch the end
-			break;
-		}
 		switch (type) {
 		case SET_ATTR:
 			nova_ring_setattr_entry(sb, sih, SENTRY(entryc), ring,
@@ -1273,9 +1271,9 @@ again:
 					if (nova_vaild_data_csum(sb, sih,
 								 entry)) {
 					} else {
-						// invalid entry
-						invalid = 1;
-						break;
+						// // invalid entry
+						// invalid = 1;
+						// break;
 					}
 					trans_curr += sizeof(
 						struct nova_file_write_entry);
@@ -1284,56 +1282,52 @@ again:
 							sb, trans_curr, 1);
 					type = nova_get_entry_type(entry);
 				}
-				if (invalid) {
-					// if invalid free whole trans
-					trans_curr = curr_p;
+				// if (invalid) {
+				// 	// if invalid free whole trans
+				// 	trans_curr = curr_p;
+				// 	entry = (void *)
+				// 		nova_get_virt_addr_from_offset(
+				// 			sb, trans_curr, 1);
+				// 	while (type == FILE_WRITE &&
+				// 	       WENTRY(entry)->trans_id ==
+				// 		       sih->trans_id) {
+				// 		WENTRY(entry)->invalid_pages =
+				// 			WENTRY(entry)->num_pages;
+				// 		u64 addr = nova_get_addr_off(
+				// 			NOVA_SB(sb), entry, 1);
+				// 		nova_inc_page_invalid_entries(
+				// 			sb, addr);
+				// 		nova_update_entry_csum(entry);
+				// 		trans_curr += sizeof(
+				// 			struct nova_file_write_entry);
+				// 		entry = (void *)
+				// 			nova_get_virt_addr_from_offset(
+				// 				sb, trans_curr,
+				// 				1);
+				// 		type = nova_get_entry_type(
+				// 			entry);
+				// 	}
+				// } else {
+				// all valid set allocation info
+				trans_curr = curr_p;
+				entry = (void *)nova_get_virt_addr_from_offset(
+					sb, trans_curr, 1);
+				while (type == FILE_WRITE &&
+				       WENTRY(entry)->trans_id ==
+					       sih->trans_id) {
+					curr_last =
+						nova_traverse_file_write_entry(
+							sb, sih, WENTRY(entry),
+							WENTRY(entryc), ring,
+							base, bm);
+					trans_curr += sizeof(
+						struct nova_file_write_entry);
 					entry = (void *)
 						nova_get_virt_addr_from_offset(
 							sb, trans_curr, 1);
-					while (type == FILE_WRITE &&
-					       WENTRY(entry)->trans_id ==
-						       sih->trans_id) {
-						WENTRY(entry)->invalid_pages =
-							WENTRY(entry)->num_pages;
-						u64 addr = nova_get_addr_off(
-							NOVA_SB(sb), entry, 1);
-						nova_inc_page_invalid_entries(
-							sb, addr);
-						nova_update_entry_csum(entry);
-						trans_curr += sizeof(
-							struct nova_file_write_entry);
-						entry = (void *)
-							nova_get_virt_addr_from_offset(
-								sb, trans_curr,
-								1);
-						type = nova_get_entry_type(
-							entry);
-					}
-				} else {
-					// all valid set allocation info
-					trans_curr = curr_p;
-					entry = (void *)
-						nova_get_virt_addr_from_offset(
-							sb, trans_curr, 1);
-					while (type == FILE_WRITE &&
-					       WENTRY(entry)->trans_id ==
-						       sih->trans_id) {
-						curr_last =
-							nova_traverse_file_write_entry(
-								sb, sih,
-								WENTRY(entry),
-								WENTRY(entryc),
-								ring, base, bm);
-						trans_curr += sizeof(
-							struct nova_file_write_entry);
-						entry = (void *)
-							nova_get_virt_addr_from_offset(
-								sb, trans_curr,
-								1);
-						type = nova_get_entry_type(
-							entry);
-					}
+					type = nova_get_entry_type(entry);
 				}
+				// }
 				curr_p = trans_curr;
 			}
 			if (last_blocknr < curr_last)
@@ -1486,6 +1480,9 @@ static void wait_to_finish(int cpus)
 			wait_event_interruptible_timeout(finish_wq, false,
 							 msecs_to_jiffies(1));
 		}
+		if (threads[i]) {
+			kthread_stop(threads[i]);
+		}
 	}
 }
 
@@ -1603,7 +1600,6 @@ static int failure_thread_func(void *data)
 
 	finished[cpuid] = 1;
 	wake_up_interruptible(&finish_wq);
-	force_sig(SIGKILL);
 	return ret;
 }
 
