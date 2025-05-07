@@ -87,6 +87,6 @@
 #define NOVA_ENTRY_IN_MEM 1
 #define NOVA_INODE_IN_MEM 0
 
-#define NOVA_CKPT 0
+#define NOVA_CKPT 1
 
 #endif /* __NOVA_CONFIG_H_ */

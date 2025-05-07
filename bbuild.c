@@ -1218,7 +1218,9 @@ again:
 		set_bm(curr_p >> PAGE_SHIFT, bm, BM_4K);
 	}
 
-	while (curr_p != pi->log_tail) {
+	// TODO: scan until type == 0 which means we touch the end of log
+	// log tail is unreliable, so we need to scan until the end
+	while (true) {
 		if (goto_next_page(sb, curr_p)) {
 			curr_p = next_log_page(sb, curr_p);
 			if (base == 0) {
@@ -1228,8 +1230,8 @@ again:
 		}
 
 		if (curr_p == 0) {
-			nova_err(sb, "File inode %llu log is NULL!\n", ino);
-			BUG();
+			// the end of log, no next log page
+			break;
 		}
 
 		entry = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
@@ -1240,6 +1242,10 @@ again:
 			return 0;
 
 		type = nova_get_entry_type(entryc);
+		if (type == 0) {
+			// touch the end
+			break;
+		}
 		switch (type) {
 		case SET_ATTR:
 			nova_ring_setattr_entry(sb, sih, SENTRY(entryc), ring,
@@ -1269,6 +1275,7 @@ again:
 					} else {
 						// invalid entry
 						invalid = 1;
+						break;
 					}
 					trans_curr += sizeof(
 						struct nova_file_write_entry);
@@ -1820,6 +1827,8 @@ int nova_recovery(struct super_block *sb)
 #endif
 
 	value = nova_try_normal_recovery(sb);
+	// TODO: test revovery, remove it later
+	value = false;
 	if (value) {
 		nova_dbg("NOVA: Normal shutdown\n");
 	} else {
@@ -1853,6 +1862,7 @@ out:
 		Timingstats[recovery_t] +=
 			(end.tv_sec - start.tv_sec) * 1000000000 +
 			(end.tv_nsec - start.tv_nsec);
+		nova_info("recovery: %llu\n", Timingstats[recovery_t]);
 	}
 
 	if (!value)
