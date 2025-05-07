@@ -663,7 +663,9 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 
 	nova_init_blockmap(sb, 0);
 
+#if NOVA_CKPT
 	nova_ckpt_init(sb);
+#endif
 
 	if (nova_lite_journal_hard_init(sb) < 0) {
 		nova_err(sb, "Lite journal hard initialization failed\n");
@@ -1071,11 +1073,13 @@ setup_sb:
 
 	sbi->delegation_ready = 1;
 
+#if NOVA_CKPT
 	retval = nova_init_ckpt_thread(sb);
 	if (retval) {
 		nova_err(sb, "Failed to initialize checkpoint thread\n");
 		goto out;
 	}
+#endif
 
 	nova_print_curr_epoch_id(sb);
 
@@ -1204,7 +1208,9 @@ static void nova_put_super(struct super_block *sb)
 
 	nova_agents_fini();
 	nova_fini_ring_buffers();
+#if NOVA_CKPT
 	nova_ckpt_thread_fini();
+#endif
 
 	if (measure_timing || measure_meta_timing) {
 		nova_print_timing_stats(sb);
