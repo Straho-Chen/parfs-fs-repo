@@ -187,6 +187,7 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	request.wait_hint = wait_hint;
 
 	NOVA_START_TIMING(send_request_w_t, send_request_time);
+	NOVA_START_META_TIMING(bd_comu_t, send_request_time);
 	do {
 		thread = nova_choose_rings();
 		ret = nova_send_request(nova_ring_buffer[socket][thread],
@@ -197,6 +198,7 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	wake_up_interruptible(&delegation_queue[socket][thread]);
 #endif
 
+	NOVA_END_META_TIMING(bd_comu_t, send_request_time);
 	NOVA_END_TIMING(send_request_w_t, send_request_time);
 
 out:
