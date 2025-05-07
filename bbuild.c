@@ -1254,82 +1254,11 @@ again:
 			curr_p += sizeof(struct nova_link_change_entry);
 			break;
 		case FILE_WRITE:
-			if (WENTRY(entryc)->trans_id <= sih->ckpt_id) {
-				curr_last = nova_traverse_file_write_entry(
-					sb, sih, WENTRY(entry), WENTRY(entryc),
-					ring, base, bm);
-				curr_p += sizeof(struct nova_file_write_entry);
-			} else {
-				trans_curr = curr_p;
-				entry = (void *)nova_get_virt_addr_from_offset(
-					sb, trans_curr, 1);
-				sih->trans_id = WENTRY(entry)->trans_id;
-				// check whole trans valid
-				while (type == FILE_WRITE &&
-				       WENTRY(entry)->trans_id ==
-					       sih->trans_id) {
-					if (nova_vaild_data_csum(sb, sih,
-								 entry)) {
-					} else {
-						// // invalid entry
-						// invalid = 1;
-						// break;
-					}
-					trans_curr += sizeof(
-						struct nova_file_write_entry);
-					entry = (void *)
-						nova_get_virt_addr_from_offset(
-							sb, trans_curr, 1);
-					type = nova_get_entry_type(entry);
-				}
-				// if (invalid) {
-				// 	// if invalid free whole trans
-				// 	trans_curr = curr_p;
-				// 	entry = (void *)
-				// 		nova_get_virt_addr_from_offset(
-				// 			sb, trans_curr, 1);
-				// 	while (type == FILE_WRITE &&
-				// 	       WENTRY(entry)->trans_id ==
-				// 		       sih->trans_id) {
-				// 		WENTRY(entry)->invalid_pages =
-				// 			WENTRY(entry)->num_pages;
-				// 		u64 addr = nova_get_addr_off(
-				// 			NOVA_SB(sb), entry, 1);
-				// 		nova_inc_page_invalid_entries(
-				// 			sb, addr);
-				// 		nova_update_entry_csum(entry);
-				// 		trans_curr += sizeof(
-				// 			struct nova_file_write_entry);
-				// 		entry = (void *)
-				// 			nova_get_virt_addr_from_offset(
-				// 				sb, trans_curr,
-				// 				1);
-				// 		type = nova_get_entry_type(
-				// 			entry);
-				// 	}
-				// } else {
-				// all valid set allocation info
-				trans_curr = curr_p;
-				entry = (void *)nova_get_virt_addr_from_offset(
-					sb, trans_curr, 1);
-				while (type == FILE_WRITE &&
-				       WENTRY(entry)->trans_id ==
-					       sih->trans_id) {
-					curr_last =
-						nova_traverse_file_write_entry(
-							sb, sih, WENTRY(entry),
-							WENTRY(entryc), ring,
-							base, bm);
-					trans_curr += sizeof(
-						struct nova_file_write_entry);
-					entry = (void *)
-						nova_get_virt_addr_from_offset(
-							sb, trans_curr, 1);
-					type = nova_get_entry_type(entry);
-				}
-				// }
-				curr_p = trans_curr;
-			}
+			nova_vaild_data_csum(sb, sih, entry);
+			curr_last = nova_traverse_file_write_entry(
+				sb, sih, WENTRY(entry), WENTRY(entryc), ring,
+				base, bm);
+			curr_p += sizeof(struct nova_file_write_entry);
 			if (last_blocknr < curr_last)
 				last_blocknr = curr_last;
 			break;
