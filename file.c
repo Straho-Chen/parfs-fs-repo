@@ -750,8 +750,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	size_t bytes;
 	long status = 0;
 	INIT_TIMING(cow_write_time);
-	INIT_TIMING(bd_write_time);
 	INIT_TIMING(fini_delegation_time);
+	INIT_TIMING(bd_write_time);
+	INIT_TIMING(bd_data_csum_time);
+	INIT_TIMING(bd_meta_write_time);
 	unsigned long step = 0;
 	ssize_t ret;
 	u64 begin_tail = 0;
@@ -994,8 +996,11 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
+		// we do data csum on cow write, no need is_dele check
 		// 		if (data_csum > 0 || data_parity > 0) {
-		// /* calculate data checksum and write csum to pmem */
+		// 			/* calculate data checksum and write csum to pmem */
+		// 			NOVA_START_META_TIMING(bd_data_csum_t,
+		// 					       bd_data_csum_time);
 		// #if NOVA_KERNEL_COPY_USER_BUFFER
 		// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
 		// 						     ubuf_copy, blocknr);
@@ -1003,6 +1008,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
 		// 						     (char *)buf, blocknr);
 		// #endif
+		// 			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
 		// 			if (ret)
 		// 				goto out;
 		// 		}
@@ -1012,6 +1018,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		else
 			file_size = cpu_to_le64(inode->i_size);
 
+		NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
 		/* init log entry */
 		nova_init_file_write_entry(sb, sih, &entry_data, epoch_id,
 					   start_blk, allocated, blocknr, time,
@@ -1026,6 +1033,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		ret = nova_append_file_write_entry(sb, pi, NULL, inode,
 						   &entry_data, &update);
 #endif
+		NOVA_END_META_TIMING(bd_meta_write_t, bd_meta_write_time);
 
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);
@@ -1069,12 +1077,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	sih->i_blocks += (total_blocks << (data_bits - sb->s_blocksize_bits));
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
+	NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
 // update inode (pi->log_tail); like Jc
 #if NOVA_INODE_IN_MEM
 	nova_update_inode(sb, inode, pi, &inode_copy, &update, 1);
 #else
 	nova_update_inode(sb, inode, pi, NULL, &update, 1);
 #endif
+	NOVA_END_META_TIMING(bd_meta_write_t, bd_meta_write_time);
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	/* Free the overlap blocks after the write is committed */
@@ -1098,9 +1108,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 out:
 	if (data_csum > 0 || data_parity > 0) {
 		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
-		NOVA_START_META_TIMING(bd_wait_data_t, fini_delegation_time);
 		nova_complete_delegation(issued_cnt, completed_cnt);
-		NOVA_END_META_TIMING(bd_wait_data_t, fini_delegation_time);
 		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 	}
 	struct nova_ckpt_entry ckpt_entry;
