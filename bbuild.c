@@ -1794,7 +1794,7 @@ out:
 		Timingstats[recovery_t] +=
 			(end.tv_sec - start.tv_sec) * 1000000000 +
 			(end.tv_nsec - start.tv_nsec);
-		nova_info("recovery: %llu\n", Timingstats[recovery_t]);
+		nova_info("recovery_time: %llu\n", Timingstats[recovery_t]);
 	}
 
 	if (!value)
