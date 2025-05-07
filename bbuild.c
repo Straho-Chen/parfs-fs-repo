@@ -1826,7 +1826,7 @@ int nova_recovery(struct super_block *sb)
 	nova_ckpt_restore(sb);
 #endif
 
-	value = nova_try_normal_recovery(sb);
+	// value = nova_try_normal_recovery(sb);
 	// TODO: test revovery, remove it later
 	value = false;
 	if (value) {
