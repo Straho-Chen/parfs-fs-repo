@@ -1255,7 +1255,6 @@ again:
 			curr_p += sizeof(struct nova_link_change_entry);
 			break;
 		case FILE_WRITE:
-			nova_vaild_data_csum(sb, sih, entry);
 			curr_last = nova_traverse_file_write_entry(
 				sb, sih, WENTRY(entry), WENTRY(entryc), ring,
 				base, bm);
