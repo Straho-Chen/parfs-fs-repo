@@ -29,7 +29,7 @@ void nova_write_ckpt_entry(struct nova_ckpt *ckpt,
 			      entry->ino, (u64)entry_in_nvm);
 		entry_in_nvm->latest_trans_id = entry->latest_trans_id;
 		nova_flush_buffer(&entry_in_nvm->latest_trans_id, sizeof(u64),
-				  0);
+				  1);
 	} else {
 		// alloc
 		nova_dbg_ckpt("%s: not found previous, alloc\n", __func__);
@@ -43,10 +43,11 @@ void nova_write_ckpt_entry(struct nova_ckpt *ckpt,
 			nova_get_virt_addr_from_offset(ckpt->sb, curr, 1);
 		entry_in_nvm->ino = entry->ino;
 		entry_in_nvm->latest_trans_id = entry->latest_trans_id;
-		nova_flush_buffer(entry, size, 0);
+		nova_flush_buffer(entry, size, 1);
 		curr += size;
 		ckpt->pi->log_tail = curr;
 		nova_flush_buffer(&ckpt->pi->log_tail, CACHELINE_SIZE, 1);
+		ckpt->sih->log_tail = curr;
 
 		// insert
 		radix_tree_insert(&ckpt->tree, entry->ino, entry_in_nvm);
@@ -220,14 +221,20 @@ int nova_init_ckpt_thread(struct super_block *sb)
 
 error:
 	cpu_topology_free(socket_cpu);
-	nova_ckpt_thread_fini();
+	nova_ckpt_thread_fini(sb);
 
 	return -ENOMEM;
 }
 
-void nova_ckpt_thread_fini(void)
+void nova_ckpt_thread_fini(struct super_block *sb)
 {
+	struct nova_sb_info *sbi = NOVA_SB(sb);
+	struct nova_ckpt *ckpt = sbi->ckpt;
 	if (nova_ckpt_task) {
+		while (!kfifo_is_empty(&ckpt->ring)) {
+			nova_dbg("%s: ring len: %u\n", __func__,
+				 kfifo_len(&ckpt->ring));
+		}
 		int ret;
 		if ((ret = kthread_stop(nova_ckpt_task)))
 			nova_info("kthread_stop task returned error %d\n", ret);

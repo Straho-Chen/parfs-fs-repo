@@ -919,7 +919,7 @@ bool nova_verify_data_csum(struct super_block *sb,
 				 *     at least one csum is corrupted, also need to run
 				 *     data recovery to see if one csum is still good
 				 */
-				nova_dbg(
+				nova_dbg_verbose(
 					"%s: nova data corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
 					__func__, sih->ino, strp, block, blocks,
 					blockoff, blocknr, csum_calc,
@@ -937,7 +937,7 @@ bool nova_verify_data_csum(struct super_block *sb,
 				/* Getting here, data is known good but one checksum is
 			 * considered corrupted.
 			 */
-				nova_dbg(
+				nova_dbg_verbose(
 					"%s: nova checksum corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
 					__func__, sih->ino, strp, block, blocks,
 					blockoff, blocknr, csum_calc,
@@ -963,7 +963,7 @@ bool nova_verify_data_csum(struct super_block *sb,
 						   NOVA_DATA_CSUM_LEN,
 						   &irq_flags);
 
-				nova_dbg(
+				nova_dbg_verbose(
 					"%s: nova checksum corruption repaired!\n",
 					__func__);
 			}
