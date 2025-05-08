@@ -194,7 +194,7 @@ enum timing_category {
 
 enum timing_meta_category {
 	bd_cow_write_t,
-	bd_wait_data_t,
+	bd_memcpy_w_t,
 
 	META_TIMING_NUM,
 };
