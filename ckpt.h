@@ -13,7 +13,7 @@ void nova_ckpt_init(struct super_block *sb);
 void nova_ckpt_restore(struct super_block *sb);
 void nova_ckpt_send_request(struct kfifo *ring, void *payload, size_t size);
 int nova_init_ckpt_thread(struct super_block *sb);
-void nova_ckpt_thread_fini(void);
+void nova_ckpt_thread_fini(struct super_block *sb);
 u64 nova_get_ckpt_id(struct nova_ckpt *ckpt, u64 ino);
 
 #endif
