@@ -1732,8 +1732,11 @@ int nova_recovery(struct super_block *sb)
 	nova_dbg_verbose("%s\n", __func__);
 
 	/* Always check recovery time */
-	if (measure_timing == 0)
+	if (measure_timing == 0) {
+		mem_fence();
 		ktime_get_ts64(&start);
+		mem_fence();
+	}
 
 	NOVA_START_TIMING(recovery_t, start);
 	nova_dbg_verbose("%s: meta size: %#lx, data size: %#lx\n", __func__,
@@ -1780,7 +1783,9 @@ int nova_recovery(struct super_block *sb)
 out:
 	NOVA_END_TIMING(recovery_t, start);
 	if (measure_timing == 0) {
+		mem_fence();
 		ktime_get_ts64(&end);
+		mem_fence();
 		Timingstats[recovery_t] +=
 			(end.tv_sec - start.tv_sec) * 1000000000 +
 			(end.tv_nsec - start.tv_nsec);
