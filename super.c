@@ -53,6 +53,12 @@ int dram_struct_csum;
 int support_clwb;
 int write_dele_size;
 
+/* FIXME: should the following variable be one per NOVA instance? */
+unsigned int nova_dbgmask = 0;
+// unsigned int nova_dbgmask = NOVA_DBGMASK_VERBOSE | NOVA_DBGMASK_TRANSACTION;
+// unsigned int nova_dbgmask = NOVA_DBGMASK_VERBOSE;
+// unsigned int nova_dbgmask = NOVA_DBGMASK_DELEGATION;
+
 module_param(measure_timing, int, 0444);
 MODULE_PARM_DESC(measure_timing, "Timing measurement");
 
@@ -93,12 +99,6 @@ static const struct export_operations nova_export_ops;
 static struct kmem_cache *nova_inode_cachep;
 static struct kmem_cache *nova_range_node_cachep;
 static struct kmem_cache *nova_snapshot_info_cachep;
-
-/* FIXME: should the following variable be one per NOVA instance? */
-unsigned int nova_dbgmask = 0;
-// unsigned int nova_dbgmask = NOVA_DBGMASK_VERBOSE | NOVA_DBGMASK_TRANSACTION;
-// unsigned int nova_dbgmask = NOVA_DBGMASK_VERBOSE;
-// unsigned int nova_dbgmask = NOVA_DBGMASK_DELEGATION;
 
 void nova_error_mng(struct super_block *sb, const char *fmt, ...)
 {
@@ -1209,7 +1209,7 @@ static void nova_put_super(struct super_block *sb)
 	nova_agents_fini();
 	nova_fini_ring_buffers();
 #if NOVA_CKPT
-	nova_ckpt_thread_fini();
+	nova_ckpt_thread_fini(sb);
 #endif
 
 	if (measure_timing || measure_meta_timing) {

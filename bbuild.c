@@ -1192,6 +1192,7 @@ static int nova_traverse_file_inode_log(struct super_block *sb,
 
 #if NOVA_CKPT
 	sih->ckpt_id = nova_get_ckpt_id(sbi->ckpt, sih->ino);
+	nova_dbg("ckpt_id %llu, -1? %d\n", sih->ckpt_id, (sih->ckpt_id == -1));
 #else
 	sih->ckpt_id = -1;
 #endif
@@ -1415,9 +1416,6 @@ static void wait_to_finish(int cpus)
 		while (finished[i] == 0) {
 			wait_event_interruptible_timeout(finish_wq, false,
 							 msecs_to_jiffies(1));
-		}
-		if (threads[i]) {
-			kthread_stop(threads[i]);
 		}
 	}
 }
