@@ -1277,19 +1277,19 @@ again:
 		}
 	}
 
-	while (trans_curr != pi->log_tail) {
-		if (goto_next_page(sb, trans_curr)) {
-			trans_curr = next_log_page(sb, trans_curr);
-			if (base == 0) {
-				BUG_ON(trans_curr & (PAGE_SIZE - 1));
-				set_bm(trans_curr >> PAGE_SHIFT, bm, BM_4K);
-			}
-		}
-		entry = (void *)nova_get_virt_addr_from_offset(sb, trans_curr,
-							       1);
-		nova_vaild_data_csum(sb, sih, entry);
-		trans_curr += sizeof(struct nova_file_write_entry);
-	}
+	// while (trans_curr != pi->log_tail) {
+	// 	if (goto_next_page(sb, trans_curr)) {
+	// 		trans_curr = next_log_page(sb, trans_curr);
+	// 		if (base == 0) {
+	// 			BUG_ON(trans_curr & (PAGE_SIZE - 1));
+	// 			set_bm(trans_curr >> PAGE_SHIFT, bm, BM_4K);
+	// 		}
+	// 	}
+	// 	entry = (void *)nova_get_virt_addr_from_offset(sb, trans_curr,
+	// 						       1);
+	// 	nova_vaild_data_csum(sb, sih, entry);
+	// 	trans_curr += sizeof(struct nova_file_write_entry);
+	// }
 
 	if (base == 0) {
 		/* Keep traversing until log ends */
