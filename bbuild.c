@@ -1191,8 +1191,8 @@ static int nova_traverse_file_inode_log(struct super_block *sb,
 	data_bits = blk_type_to_shift[btype];
 
 #if NOVA_CKPT
-	sih->ckpt_id = nova_get_ckpt_id(sbi->ckpt, sih->ino);
-	nova_dbg("ckpt_id %llu, -1? %d\n", sih->ckpt_id, (sih->ckpt_id == -1));
+	// sih->ckpt_id = nova_get_ckpt_id(sbi->ckpt, sih->ino);
+	// nova_dbg("ckpt_id %llu, -1? %d\n", sih->ckpt_id, (sih->ckpt_id == -1));
 #else
 	sih->ckpt_id = -1;
 #endif
