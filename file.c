@@ -753,8 +753,9 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	size_t bytes;
 	long status = 0;
 	INIT_TIMING(cow_write_time);
-	INIT_TIMING(bd_write_time);
 	INIT_TIMING(fini_delegation_time);
+	INIT_TIMING(bd_write_time);
+	INIT_TIMING(bd_meta_time);
 	unsigned long step = 0;
 	ssize_t ret;
 	u64 begin_tail = 0;
@@ -925,6 +926,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			__func__, head, tail, head_eq_tail);
 
 		if (data_csum > 0 || data_parity > 0) {
+			NOVA_START_META_TIMING(bd_meta_t, bd_meta_time);
 /* calculate data checksum and write csum to pmem */
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			ret = nova_protect_file_data(sb, inode, pos, bytes,
@@ -933,6 +935,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			ret = nova_protect_file_data(sb, inode, pos, bytes,
 						     (char *)buf, blocknr);
 #endif
+			NOVA_END_META_TIMING(bd_meta_t, bd_meta_time);
 			if (ret)
 				goto out;
 		}
@@ -942,6 +945,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		else
 			file_size = cpu_to_le64(inode->i_size);
 
+			NOVA_START_META_TIMING(bd_meta_t, bd_meta_time);
 		/* init log entry */
 		nova_init_file_write_entry(sb, sih, &entry_data, epoch_id,
 					   start_blk, allocated, blocknr, time,
@@ -956,6 +960,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		ret = nova_append_file_write_entry(sb, pi, NULL, inode,
 						   &entry_data, &update);
 #endif
+			NOVA_END_META_TIMING(bd_meta_t, bd_meta_time);
 
 		if (ret) {
 			nova_dbg("%s: append inode entry failed\n", __func__);

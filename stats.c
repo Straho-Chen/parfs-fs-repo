@@ -285,9 +285,12 @@ static void nova_print_meta_stats(struct super_block *sb)
 {
 	nova_info("=========== NOVA meta stats ===========\n");
 	nova_info("write_total: %llu\n", Timingmetastats[bd_cow_write_t]);
-	nova_info("write_meta: %llu\n", Timingmetastats[bd_cow_write_t] -
-						Timingmetastats[bd_memcpy_w_t]);
-	nova_info("write_data: %llu\n", Timingmetastats[bd_memcpy_w_t]);
+	nova_info("write_meta: %llu\n", Timingmetastats[bd_meta_t]);
+	nova_info("write_data: %llu\n",
+		  Timingmetastats[bd_cow_write_t] - Timingmetastats[bd_meta_t]);
+	// nova_info("write_meta: %llu\n", Timingmetastats[bd_cow_write_t] -
+	// 					Timingmetastats[bd_memcpy_w_t]);
+	// nova_info("write_data: %llu\n", Timingmetastats[bd_memcpy_w_t]);
 }
 
 void nova_get_timing_stats(void)

@@ -118,6 +118,8 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 
 	INIT_TIMING(send_request_time);
 
+	NOVA_START_META_TIMING(bd_meta_t, send_request_time);
+
 	/*
 	 * We copy user buffer into kernel buffer on main thread.
 	 * So we don't need to do user prefault here.
@@ -194,6 +196,8 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	wake_up_interruptible(&delegation_queue[socket][thread]);
 
 	NOVA_END_TIMING(send_request_w_t, send_request_time);
+
+	NOVA_END_META_TIMING(bd_meta_t, send_request_time);
 
 out:
 	return ret;
