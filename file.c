@@ -494,6 +494,8 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 	long issued_cnt[NOVA_MAX_SOCKET];
 	struct nova_notifyer completed_cnt[NOVA_MAX_SOCKET];
 
+	bool is_dele = false;
+
 	memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
 	memset(completed_cnt, 0,
 	       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
@@ -631,7 +633,7 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 				sb, buf + copied, dax_mem + offset,
 				data_block_size - offset, 0, socket, zero,
 				issued_cnt, completed_cnt,
-				len >= NOVA_READ_WAIT_THRESHOLD);
+				len >= NOVA_READ_WAIT_THRESHOLD, &is_dele);
 
 			if (left) {
 				nova_dbg("%s ERROR!: bytes %#lx, left %#lx\n",
@@ -664,7 +666,7 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 			left = do_nova_nvmm_read(
 				sb, buf + copied, dax_mem + offset, nr, 0,
 				socket, zero, issued_cnt, completed_cnt,
-				len >= NOVA_READ_WAIT_THRESHOLD);
+				len >= NOVA_READ_WAIT_THRESHOLD, &is_dele);
 
 			if (left) {
 				nova_dbg("%s ERROR!: bytes %#lx, left %#lx\n",
@@ -688,9 +690,11 @@ static ssize_t do_dax_mapping_read(struct file *filp, char __user *buf,
 	} while (copied < len);
 
 out:
-	NOVA_START_TIMING(fini_delegation_r_t, fini_delegation_time);
-	nova_complete_delegation(issued_cnt, completed_cnt);
-	NOVA_END_TIMING(fini_delegation_r_t, fini_delegation_time);
+	if (is_dele) {
+		NOVA_START_TIMING(fini_delegation_r_t, fini_delegation_time);
+		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_TIMING(fini_delegation_r_t, fini_delegation_time);
+	}
 	*ppos = pos + copied;
 	if (filp)
 		file_accessed(filp);

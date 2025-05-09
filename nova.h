@@ -1027,7 +1027,7 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 				       void *kmem_src, size_t bytes, int meta,
 				       int socket, int zero, long *issued_cnt,
 				       struct nova_notifyer *completed_cnt,
-				       int wait_hint)
+				       int wait_hint, bool *is_dele)
 {
 	size_t left;
 	INIT_TIMING(memcpy_time);
@@ -1058,6 +1058,8 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 					       socket, zero, issued_cnt,
 					       completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_r_t, delegation_time);
+		if (is_dele)
+			*is_dele = true;
 	}
 
 	return left;
