@@ -94,7 +94,7 @@
 
 #define NOVA_KERNEL_COPY_USER_BUFFER 0
 
-#define NOVA_ONE_COPY 0
+#define NOVA_ONE_COPY 1
 
 #define NOVA_OPTIMIZE_APPEND 0
 
