@@ -151,12 +151,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	end_blk = start_blk + num_blocks - 1;
 	if (start_blk == end_blk)
 		head_eq_tail = 1;
-	if (count < data_block_size) {
-		// count less than a block, copy count length
-		bytes = count;
-		nova_dbg_verbose("%s: partial copy size: %#lx\n", __func__,
-				 bytes);
-	}
 
 	nova_dbg_verbose("%s: %#lx blocks, head equal tail: %d\n", __func__,
 			 num_blocks, head_eq_tail);
@@ -185,11 +179,13 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 
 		// copy user data to the new block
 		ubuf_off = 0;
-		if (!bytes) {
+		if (count > data_block_size - offset) {
 			// count larger than a block
 			bytes = data_block_size - offset;
 			nova_dbg_verbose("%s: partial copy size: %#lx\n",
 					 __func__, bytes);
+		} else {
+			bytes = count;
 		}
 		ret = do_nova_nvmm_write(sb, kmem + offset,
 					 (void *)(ubuf_copy + ubuf_off), bytes,
