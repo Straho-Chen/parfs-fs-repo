@@ -166,7 +166,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	nova_dbg_verbose("%s: start offset %lu start blk %#lx\n", __func__,
 			 offset, start_blk);
 	if (offset != 0) {
-		*head = 1;
 		nova_dbg_verbose("%s: head blocknr: %#lx\n", __func__, blocknr);
 		kmem = nova_get_virt_addr_from_offset(
 			inode->i_sb,
@@ -207,7 +206,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	nova_dbg_verbose("%s: end offset %lu, end blk %#lx\n", __func__,
 			 eblk_offset, end_blk);
 	if (eblk_offset != 0) {
-		*tail = 1;
 		// copy user buffer to the new cow block
 		blocknr = blocknr + (num_blocks - 1) *
 					    nova_get_numblocks(sih->i_blk_type);
@@ -856,7 +854,6 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	int i, socket;
 	size_t head, tail;
 	size_t aligned_num_blocks;
-	size_t aligned_blocks;
 	unsigned long blocknr_loop;
 	bool fair_new = false, append = false, is_dele = false;
 
@@ -1048,6 +1045,9 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 
 		aligned_num_blocks = (bytes - head - tail) >> PAGE_SHIFT;
+		nova_dbg_verbose(
+			"%s: bytes: %lu, head: %lu, tail: %lu, aligned_num_blocks: %lu\n",
+			__func__, bytes, head, tail, aligned_num_blocks);
 		// move blocknr to the start of contiguous blocks
 		if (head) {
 			blocknr += 1;

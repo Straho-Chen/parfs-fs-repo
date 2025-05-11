@@ -922,11 +922,6 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 		goto out;
 	}
 
-	nova_dbg(
-		"measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d, write_dele_size: %d\n",
-		measure_timing, metadata_csum, wprotect, data_csum, data_parity,
-		dram_struct_csum, write_dele_size);
-
 	get_random_bytes(&random, sizeof(u32));
 	atomic_set(&sbi->next_generation, random);
 
@@ -988,6 +983,11 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 			 __func__);
 		goto out;
 	}
+
+	nova_dbg(
+		"measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d, write_dele_size: %d\n",
+		measure_timing, metadata_csum, wprotect, data_csum, data_parity,
+		dram_struct_csum, write_dele_size);
 
 	if (sbi->mount_snapshot) {
 		sb->s_flags |= MS_RDONLY;
