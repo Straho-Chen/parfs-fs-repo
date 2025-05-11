@@ -53,7 +53,8 @@
 #define NOVA_SOLROS_RING_BUFFER 1
 
 /* write delegation limits: 256 */
-#define NOVA_WRITE_DELEGATION_LIMIT 256
+// #define NOVA_WRITE_DELEGATION_LIMIT 256
+#define NOVA_WRITE_DELEGATION_LIMIT (4 * 1024)
 
 /* read delegation limits: 32K */
 // #define NOVA_READ_DELEGATION_LIMIT (32 * 1024)
@@ -75,9 +76,11 @@
 
 #define NOVA_VERIFY_ENTRY_CSUM 0
 
-#define NOVA_XXHASH_CSUM 1
+#define NOVA_XXHASH_CSUM 0
 
 #define NOVA_KERNEL_COPY_USER_BUFFER 1
+
+#define NOVA_META_SEPARATE 0
 
 #define NOVA_ONE_COPY 1
 
@@ -86,6 +89,6 @@
 #define NOVA_ENTRY_IN_MEM 1
 #define NOVA_INODE_IN_MEM 0
 
-#define NOVA_CKPT_TRANS_THRESHOLD 8
+#define NOVA_CKPT 0
 
 #endif /* __NOVA_CONFIG_H_ */

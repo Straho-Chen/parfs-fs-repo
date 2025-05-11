@@ -150,7 +150,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 	size_t strp_size = NOVA_STRIPE_SIZE;
 	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
 	unsigned long strp_nr, blockoff, blocksize = nova_inode_blk_size(sih);
-	void *nvmmptr, *nvmmptr1;
+	void *nvmmptr;
 	u32 crc[8];
 	u64 qwd[8], *parity = NULL;
 	u64 acc[8] = { NOVA_INIT_CSUM, NOVA_INIT_CSUM, NOVA_INIT_CSUM,
@@ -225,24 +225,19 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			crc[7] = cpu_to_le32((u32)acc[7]);
 
 			nvmmptr = nova_get_data_csum_addr(sb, strp_nr, 0);
-			nvmmptr1 = nova_get_data_csum_addr(sb, strp_nr, 1);
 			/* Here is small size writes. We don't call delegation write here. */
 			nova_memunlock_range(sb, nvmmptr, csum_size * 8,
 					     &irq_flags);
 			if (support_clwb) {
 				memcpy(nvmmptr, crc, csum_size * 8);
-				memcpy(nvmmptr1, crc, csum_size * 8);
 			} else {
 				memcpy_to_pmem_nocache(nvmmptr, crc,
-						       csum_size * 8);
-				memcpy_to_pmem_nocache(nvmmptr1, crc,
 						       csum_size * 8);
 			}
 			nova_memlock_range(sb, nvmmptr, csum_size * 8,
 					   &irq_flags);
 			if (support_clwb) {
 				nova_flush_buffer(nvmmptr, csum_size * 8, 0);
-				nova_flush_buffer(nvmmptr1, csum_size * 8, 0);
 			}
 		}
 

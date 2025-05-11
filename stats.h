@@ -160,25 +160,23 @@ enum timing_category {
 	rebuild_snapshot_t,
 
 	/* Snapshot */
-	snapshot_title_t,
-	create_snapshot_t,
-	init_snapshot_info_t,
-	delete_snapshot_t,
-	append_snapshot_file_t,
-	append_snapshot_inode_t,
+	// snapshot_title_t,
+	// create_snapshot_t,
+	// init_snapshot_info_t,
+	// delete_snapshot_t,
+	// append_snapshot_file_t,
+	// append_snapshot_inode_t,
 
 	/* Delegation */
 	delegation_title_t,
 	do_delegation_r_t,
 	pre_fault_r_t,
 	send_request_r_t,
-	ring_buffer_enque_r_t,
 	fini_delegation_r_t,
 
 	do_delegation_w_t,
 	pre_fault_w_t,
 	send_request_w_t,
-	ring_buffer_enque_w_t,
 	fini_delegation_w_t,
 
 	/* IO Agent */
@@ -196,9 +194,9 @@ enum timing_category {
 
 enum timing_meta_category {
 	bd_cow_write_t,
-
-	// bd_dax_read_t,
-	// bd_memcpy_r_t,
+	bd_data_csum_t,
+	bd_meta_write_t,
+	bd_comu_t,
 
 	META_TIMING_NUM,
 };
