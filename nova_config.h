@@ -78,7 +78,7 @@
 
 #define NOVA_XXHASH_CSUM 1
 
-#define NOVA_KERNEL_COPY_USER_BUFFER 0
+#define NOVA_KERNEL_COPY_USER_BUFFER 1
 
 #define NOVA_META_SEPARATE 1
 
@@ -90,5 +90,7 @@
 #define NOVA_INODE_IN_MEM 0
 
 #define NOVA_CKPT 0
+
+#define NOVA_NO_FRAG 1
 
 #endif /* __NOVA_CONFIG_H_ */
