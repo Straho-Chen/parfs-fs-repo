@@ -85,10 +85,6 @@ static int nova_data_csum_init_free_list(struct super_block *sb,
 	sub_free_list->num_csum_blocks =
 		sub_free_list->block_start - sub_free_list->csum_start;
 
-	sub_free_list->replica_csum_start =
-		sub_free_list->block_end + 1 - sub_free_list->num_csum_blocks;
-	sub_free_list->block_end -= sub_free_list->num_csum_blocks;
-
 	return 0;
 }
 
