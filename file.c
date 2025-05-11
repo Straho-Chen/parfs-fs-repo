@@ -956,34 +956,6 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 					     true, &is_dele);
 #endif
 
-		// 		for (i = 0; i < aligned_num_blocks; i++) {
-		// 			/* Now copy from user buf */
-		// 			blocknr_loop = blocknr + i;
-		// 			nova_dbg_verbose("%s: copy to blocknr: %#lx\n",
-		// 					 __func__, blocknr_loop);
-		// 			kmem = nova_get_virt_addr_from_offset(
-		// 				inode->i_sb,
-		// 				nova_get_block_off(sb, blocknr_loop,
-		// 						   sih->i_blk_type, 0),
-		// 				0);
-		// 			socket = nova_block_to_socket(sbi, blocknr_loop,
-		// 						      sih->i_blk_type, 0);
-
-		// #if NOVA_KERNEL_COPY_USER_BUFFER
-		// 			copied += do_nova_nvmm_write(
-		// 				sb, kmem,
-		// 				(void *)(ubuf_copy + head + PAGE_SIZE * i),
-		// 				PAGE_SIZE, 0, socket, 0, 1, 0, issued_cnt,
-		// 				completed_cnt, len >= NOVA_WRITE_WAIT_THRESHOLD,
-		// 				true, &is_dele);
-		// #else
-		// 			copied += do_nova_nvmm_write(
-		// 				sb, kmem, (void *)(buf + head + PAGE_SIZE * i),
-		// 				PAGE_SIZE, 0, socket, 0, 1, 0, issued_cnt,
-		// 				completed_cnt, len >= NOVA_WRITE_WAIT_THRESHOLD,
-		// 				true, &is_dele);
-		// #endif
-		// 		}
 		if (copied) {
 			nova_err(sb, "%s: delegation failed to copy all\n",
 				 __func__);

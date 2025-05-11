@@ -266,20 +266,11 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 				    __func__, tasks[i].kuaddr, tasks[i].size,
 				    kaddr);
 
-#if NOVA_NT_STORE
-		memcpy_to_pmem_nocache((void *)kaddr, (void *)tasks[i].kuaddr,
-				       tasks[i].size);
-#else
-		memcpy((void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
-#endif
+		memcpy_flushcache((void *)kaddr, (void *)tasks[i].kuaddr,
+				  tasks[i].size);
 
 		kaddr += tasks[i].size;
 	}
-
-#if !NOVA_NT_STORE
-	if (flush_cache)
-		nova_flush_buffer((void *)orig_kaddr, bytes, 0);
-#endif
 
 #else
 
