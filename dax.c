@@ -166,7 +166,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	nova_dbg_verbose("%s: start offset %lu start blk %#lx\n", __func__,
 			 offset, start_blk);
 	if (offset != 0) {
-		*head = 1;
 		nova_dbg_verbose("%s: head blocknr: %#lx\n", __func__, blocknr);
 		kmem = nova_get_virt_addr_from_offset(
 			inode->i_sb,
@@ -207,7 +206,6 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 	nova_dbg_verbose("%s: end offset %lu, end blk %#lx\n", __func__,
 			 eblk_offset, end_blk);
 	if (eblk_offset != 0) {
-		*tail = 1;
 		// copy user buffer to the new cow block
 		blocknr = blocknr + (num_blocks - 1) *
 					    nova_get_numblocks(sih->i_blk_type);
