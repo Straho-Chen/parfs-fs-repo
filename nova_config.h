@@ -63,9 +63,6 @@
 /* Number of default delegation threads per socket */
 #define NOVA_DEF_DELE_THREADS_PER_SOCKET 1
 
-/* When set, use nt store to write to memory */
-#define NOVA_NT_STORE 1
-
 /* 2MB */
 #define NOVA_RING_SIZE (2 * 1024 * 1024)
 
@@ -76,7 +73,7 @@
 
 #define NOVA_VERIFY_ENTRY_CSUM 0
 
-#define NOVA_XXHASH_CSUM 1
+#define NOVA_XXHASH_CSUM 0
 
 #define NOVA_KERNEL_COPY_USER_BUFFER 0
 
@@ -90,5 +87,7 @@
 #define NOVA_INODE_IN_MEM 0
 
 #define NOVA_CKPT 0
+
+#define NOVA_NO_FRAG 1
 
 #endif /* __NOVA_CONFIG_H_ */

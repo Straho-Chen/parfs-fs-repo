@@ -266,23 +266,21 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 				    __func__, tasks[i].kuaddr, tasks[i].size,
 				    kaddr);
 
-#if NOVA_NT_STORE
-		memcpy_to_pmem_nocache((void *)kaddr, (void *)tasks[i].kuaddr,
-				       tasks[i].size);
-#else
-		memcpy((void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
-#endif
+		memcpy_flushcache((void *)kaddr, (void *)tasks[i].kuaddr,
+				  tasks[i].size);
 
 		kaddr += tasks[i].size;
 	}
 
-#if !NOVA_NT_STORE
-	if (flush_cache)
-		nova_flush_buffer((void *)orig_kaddr, bytes, 0);
-#endif
-
 #else
 
+#if NOVA_NO_FRAG
+	if (memcpy_to_pmem_avx_nocache((void *)(kaddr), (void *)(uaddr),
+				       bytes)) {
+		nova_warn("memcpy_to_pmem_avx_nocache failed to copy all\n");
+		goto out;
+	}
+#else
 	for (i = 0; i < frag * NOVA_AGENT_FRAG_SIZE;
 	     i += NOVA_AGENT_FRAG_SIZE) {
 		if (memcpy_to_pmem_avx_nocache((void *)(kaddr + i),
@@ -303,6 +301,7 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			goto out;
 		}
 	}
+#endif
 
 #endif
 
