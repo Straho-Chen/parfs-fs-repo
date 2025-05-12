@@ -289,10 +289,7 @@ static void nova_print_meta_stats(struct super_block *sb)
 	nova_info("write_meta: %llu\n", Timingmetastats[bd_meta_write_t]);
 	nova_info("write_comu: %llu\n", Timingmetastats[bd_comu_t]);
 	nova_info("write_data: %llu\n",
-		  Timingmetastats[bd_cow_write_t] -
-			  (Timingmetastats[bd_data_csum_t] +
-			   Timingmetastats[bd_meta_write_t] +
-			   Timingmetastats[bd_comu_t]));
+		  Timingmetastats[bd_cow_write_t] - Timingmetastats[bd_comu_t]);
 }
 
 void nova_get_timing_stats(void)
