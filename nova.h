@@ -999,8 +999,6 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			left = memcpy_to_pmem_nocache(kmem_dest, kubuf_src,
 						      bytes);
 		}
-		if (is_dele)
-			*is_dele = false;
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
 		nova_dbg_verbose("do delegation\n");
@@ -1027,7 +1025,7 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 				       void *kmem_src, size_t bytes, int meta,
 				       int socket, int zero, long *issued_cnt,
 				       struct nova_notifyer *completed_cnt,
-				       int wait_hint)
+				       int wait_hint, bool *is_dele)
 {
 	size_t left;
 	INIT_TIMING(memcpy_time);
@@ -1058,6 +1056,8 @@ static inline size_t do_nova_nvmm_read(struct super_block *sb, void *ubuf_dest,
 					       socket, zero, issued_cnt,
 					       completed_cnt, wait_hint);
 		NOVA_END_TIMING(do_delegation_r_t, delegation_time);
+		if (is_dele)
+			*is_dele = true;
 	}
 
 	return left;
@@ -1128,8 +1128,8 @@ int nova_check_overlap_vmas(struct super_block *sb,
 int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 				 loff_t pos, size_t count,
 				 unsigned long blocknr, void *ubuf_copy,
-				 int *head, int *tail, int *head_eq_tail,
-				 int append, long *issued_cnt,
+				 size_t *head, size_t *tail, int append,
+				 long *issued_cnt,
 				 struct nova_notifyer *completed_cnt,
 				 bool try_do_dele, bool *is_dele);
 int nova_protect_file_data(struct super_block *sb, struct inode *inode,
