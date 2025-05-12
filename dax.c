@@ -94,10 +94,10 @@ static inline int nova_handle_partial_block(
 			nova_memunlock_range(sb, kmem + offset, len,
 					     &irq_flags);
 			NOVA_START_TIMING(memcpy_w_nvmm_t, memcpy_time);
-			// NOVA_START_META_TIMING(bd_memcpy_w_t, memcpy_time);
+			NOVA_START_META_TIMING(bd_data_t, memcpy_time);
 			left = memcpy_to_pmem_nocache(kmem + offset,
 						      ptr + offset, len);
-			// NOVA_END_META_TIMING(bd_memcpy_w_t, memcpy_time);
+			NOVA_END_META_TIMING(bd_data_t, memcpy_time);
 			NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 			nova_memlock_range(sb, kmem + offset, len, &irq_flags);
 #endif

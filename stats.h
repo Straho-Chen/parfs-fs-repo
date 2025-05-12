@@ -197,6 +197,7 @@ enum timing_meta_category {
 	bd_data_csum_t,
 	bd_meta_write_t,
 	bd_comu_t,
+	bd_data_t,
 
 	META_TIMING_NUM,
 };
