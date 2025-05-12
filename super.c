@@ -51,6 +51,7 @@ int data_csum;
 int data_parity;
 int dram_struct_csum;
 int support_clwb;
+int write_dele_size;
 
 module_param(measure_timing, int, 0444);
 MODULE_PARM_DESC(measure_timing, "Timing measurement");
@@ -82,6 +83,10 @@ MODULE_PARM_DESC(nova_dbgmask, "Control debugging output");
 module_param(nova_dele_thrds, int, 0444);
 MODULE_PARM_DESC(nova_dele_thrds,
 		 "The number of per socket delegation threads");
+
+module_param(write_dele_size, int, 0444);
+MODULE_PARM_DESC(write_dele_size,
+		 "The size to decide when to do write delegation");
 
 static struct super_operations nova_sops;
 static const struct export_operations nova_export_ops;
@@ -226,6 +231,45 @@ static inline void nova_config_1_nvmm(struct nova_sb_info *sbi)
 		(unsigned long)sbi->data_start_virt, data_size);
 }
 
+static inline void nova_config_2_nvmm_meta_data_sep(struct nova_sb_info *sbi)
+{
+	size_t meta_size, data_size;
+
+	meta_size = pmem_ar_dev.size_in_bytes[0];
+	sbi->meta_start_virt = (void *)pmem_ar_dev.virt_addr[0];
+	// reserved region
+	sbi->replica_reserved_inodes_addr =
+		sbi->meta_start_virt + meta_size -
+		(sbi->tail_reserved_blocks << PAGE_SHIFT);
+	sbi->replica_sb_addr = sbi->meta_start_virt + meta_size - PAGE_SIZE;
+	sbi->meta_num_blocks = meta_size >> PAGE_SHIFT;
+	sbi->meta_head_nvm_idx = 0;
+	sbi->meta_nvm_num = 1;
+
+	data_size = pmem_ar_dev.size_in_bytes[1];
+	sbi->data_start_virt = (void *)pmem_ar_dev.virt_addr[1];
+	sbi->phys_addr = pmem_ar_dev.phy_addr[1];
+	sbi->data_num_blocks = data_size >> PAGE_SHIFT;
+	sbi->data_head_nvm_idx = 1;
+	sbi->data_nvm_num = 1;
+
+	sbi->initsize = meta_size + data_size;
+
+	// init block info
+	// meta and data use the same socket
+	sbi->block_info[0].start_block = 0;
+	sbi->block_info[0].end_block = sbi->meta_num_blocks - 1;
+
+	sbi->block_info[1].start_block = 0;
+	sbi->block_info[1].end_block =
+		sbi->block_info[1].start_block + sbi->data_num_blocks - 1;
+
+	nova_info(
+		"use 2 nvm; meta_start_virt: %#lx, meta_size: %#lx; data_start_virt: %#lx, data_size: %#lx\n",
+		(unsigned long)sbi->meta_start_virt, meta_size,
+		(unsigned long)sbi->data_start_virt, data_size);
+}
+
 static inline void nova_config_2_nvmm(struct nova_sb_info *sbi)
 {
 	/*
@@ -351,7 +395,11 @@ static inline int nova_config_nvmm(struct super_block *sb,
 	if (pmem_ar_dev.elem_num == 1)
 		nova_config_1_nvmm(sbi);
 	else if (pmem_ar_dev.elem_num == 2)
+#if NOVA_META_SEPARATE
+		nova_config_2_nvmm_meta_data_sep(sbi);
+#else
 		nova_config_2_nvmm(sbi);
+#endif
 	else
 		nova_config_3_nvmm(sbi);
 
@@ -391,6 +439,7 @@ enum {
 	Opt_err_ro,
 	Opt_dbgmask,
 	Opt_dele_thrds,
+	Opt_write_dele_size,
 	Opt_err
 };
 
@@ -408,7 +457,8 @@ static const match_table_t tokens = {
 	{ Opt_err_panic, "errors=panic" },
 	{ Opt_err_ro, "errors=remount-ro" },
 	{ Opt_dbgmask, "dbgmask=%u" },
-	{ Opt_dele_thrds, "dele_thrds=%u" },
+	{ Opt_dele_thrds, "dele_thrds=%d" },
+	{ Opt_write_dele_size, "write_dele_size=%d" },
 	{ Opt_err, NULL },
 };
 
@@ -505,6 +555,11 @@ static int nova_parse_options(char *options, struct nova_sb_info *sbi,
 			if (match_int(&args[0], &option))
 				goto bad_val;
 			nova_dele_thrds = option;
+			break;
+		case Opt_write_dele_size:
+			if (match_int(&args[0], &option))
+				goto bad_val;
+			write_dele_size = option;
 			break;
 		default: {
 			goto bad_opt;
@@ -635,6 +690,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	pi->nova_ino = NOVA_META_BLOCKNODE_INO;
 	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
 
+	pi = nova_get_inode_by_ino(sb, NOVA_CKPT_INO);
+	pi->nova_ino = NOVA_CKPT_INO;
+	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
+
 	pi = nova_get_inode_by_ino(sb, NOVA_SNAPSHOT_INO);
 	pi->nova_ino = NOVA_SNAPSHOT_INO;
 	nova_flush_buffer(pi, CACHELINE_SIZE, 1);
@@ -646,6 +705,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	nova_memlock_reserved(sb, super, &irq_flags);
 
 	nova_init_blockmap(sb, 0);
+
+#if NOVA_CKPT
+	nova_ckpt_init(sb);
+#endif
 
 	if (nova_lite_journal_hard_init(sb) < 0) {
 		nova_err(sb, "Lite journal hard initialization failed\n");
@@ -665,6 +728,10 @@ static struct nova_inode *nova_init(struct super_block *sb, unsigned long size)
 	sbi->nova_sb->s_metadata_csum = metadata_csum;
 	sbi->nova_sb->s_data_csum = data_csum;
 	sbi->nova_sb->s_data_parity = data_parity;
+	sbi->nova_sb->s_meta_size =
+		cpu_to_le64(sbi->meta_num_blocks << PAGE_SHIFT);
+	sbi->nova_sb->s_data_size =
+		cpu_to_le64(sbi->data_num_blocks << PAGE_SHIFT);
 	nova_update_super_crc(sb);
 
 	nova_sync_super(sb);
@@ -713,6 +780,9 @@ static inline void set_default_opts(struct nova_sb_info *sbi)
 	sbi->blocksize = PAGE_SIZE;
 	sbi->blocksize_bits = PAGE_SHIFT;
 	nova_set_blocksize(sbi->sb, sbi->blocksize);
+	if (!write_dele_size) {
+		write_dele_size = NOVA_WRITE_DELEGATION_LIMIT;
+	}
 }
 
 static void nova_root_check(struct super_block *sb, struct nova_inode *root_pi)
@@ -852,11 +922,6 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 		goto out;
 	}
 
-	nova_dbg(
-		"measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d\n",
-		measure_timing, metadata_csum, wprotect, data_csum, data_parity,
-		dram_struct_csum);
-
 	get_random_bytes(&random, sizeof(u32));
 	atomic_set(&sbi->next_generation, random);
 
@@ -919,6 +984,11 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 		goto out;
 	}
 
+	nova_dbg(
+		"measure timing %d, metadata checksum %d, wprotect %d, data checksum %d, data parity %d, DRAM checksum %d, write_dele_size: %d\n",
+		measure_timing, metadata_csum, wprotect, data_csum, data_parity,
+		dram_struct_csum, write_dele_size);
+
 	if (sbi->mount_snapshot) {
 		sb->s_flags |= MS_RDONLY;
 		nova_info("Snapshot: mount NOVA read-only\n");
@@ -954,6 +1024,9 @@ static int nova_fill_super(struct super_block *sb, void *data, int silent)
 			 le32_to_cpu(sbi->nova_sb->s_magic), NOVA_SUPER_MAGIC);
 		goto out;
 	}
+	nova_dbg_verbose("%s: nova meta size %#llx, data size %#llx\n",
+			 __func__, sbi->nova_sb->s_meta_size,
+			 sbi->nova_sb->s_data_size);
 
 	/* Recover journal.
 	 * Just check the entry vaildity, not undo invaild journal.
@@ -1043,6 +1116,14 @@ setup_sb:
 
 	sbi->delegation_ready = 1;
 
+#if NOVA_CKPT
+	retval = nova_init_ckpt_thread(sb);
+	if (retval) {
+		nova_err(sb, "Failed to initialize checkpoint thread\n");
+		goto out;
+	}
+#endif
+
 	nova_print_curr_epoch_id(sb);
 
 	retval = 0;
@@ -1055,6 +1136,8 @@ out:
 		kmem_cache_free(nova_inode_cachep, sbi->snapshot_si);
 		sbi->snapshot_si = NULL;
 	}
+	kfree(sbi->ckpt);
+	sbi->ckpt = NULL;
 
 	kfree(sbi->zeroed_page);
 	sbi->zeroed_page = NULL;
@@ -1168,6 +1251,9 @@ static void nova_put_super(struct super_block *sb)
 
 	nova_agents_fini();
 	nova_fini_ring_buffers();
+#if NOVA_CKPT
+	nova_ckpt_thread_fini();
+#endif
 
 	if (measure_timing || measure_meta_timing) {
 		nova_print_timing_stats(sb);

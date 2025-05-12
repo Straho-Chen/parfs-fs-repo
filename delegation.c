@@ -93,7 +93,9 @@ unsigned int nova_do_read_delegation(struct nova_sb_info *sbi,
 					&request);
 	} while (ret == -EAGAIN);
 
+#if NOVA_DELE_THREAD_SLEEP
 	wake_up_interruptible(&delegation_queue[socket][thread]);
+#endif
 
 	NOVA_END_TIMING(send_request_r_t, send_request_time);
 
@@ -117,8 +119,6 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	int thread;
 
 	INIT_TIMING(send_request_time);
-
-	NOVA_START_META_TIMING(bd_meta_t, send_request_time);
 
 	/*
 	 * We copy user buffer into kernel buffer on main thread.
@@ -187,17 +187,19 @@ unsigned int nova_do_write_delegation(struct nova_sb_info *sbi,
 	request.wait_hint = wait_hint;
 
 	NOVA_START_TIMING(send_request_w_t, send_request_time);
+	NOVA_START_META_TIMING(bd_comu_t, send_request_time);
 	do {
 		thread = nova_choose_rings();
 		ret = nova_send_request(nova_ring_buffer[socket][thread],
 					&request);
 	} while (ret == -EAGAIN);
 
+#if NOVA_DELE_THREAD_SLEEP
 	wake_up_interruptible(&delegation_queue[socket][thread]);
+#endif
 
+	NOVA_END_META_TIMING(bd_comu_t, send_request_time);
 	NOVA_END_TIMING(send_request_w_t, send_request_time);
-
-	NOVA_END_META_TIMING(bd_meta_t, send_request_time);
 
 out:
 	return ret;

@@ -62,26 +62,8 @@
 /* Number of default delegation threads per socket */
 #define NOVA_DEF_DELE_THREADS_PER_SOCKET 1
 
-/* When set, use nt store to write to memory */
-#define NOVA_NT_STORE 1
-
 /* 2MB */
 #define NOVA_RING_SIZE (2 * 1024 * 1024)
-
-/*
- * Add this config to eliminate the effects of journaling when
- * study performance
- */
-#define NOVA_ENABLE_JOURNAL 1
-
-/* stock inode lock in the linux kernel */
-#define NOVA_INODE_LOCK_STOCK 1
-/* PCPU_RWSEM from the max paper */
-#define NOVA_INODE_LOCK_MAX_PERCPU 2
-/* stock per_cpu_rwsem in the  linux kernel */
-#define NOVA_INODE_LOCK_PERCPU 3
-
-#define NOVA_INODE_LOCK NOVA_INODE_LOCK_MAX_PERCPU
 
 #define NOVA_WRITE_WAIT_THRESHOLD 2097152L
 #define NOVA_READ_WAIT_THRESHOLD 2097152L
@@ -92,7 +74,9 @@
 
 #define NOVA_XXHASH_CSUM 0
 
-#define NOVA_KERNEL_COPY_USER_BUFFER 1
+#define NOVA_KERNEL_COPY_USER_BUFFER 0
+
+#define NOVA_META_SEPARATE 0
 
 #define NOVA_ONE_COPY 0
 
@@ -100,5 +84,7 @@
 
 #define NOVA_ENTRY_IN_MEM 1
 #define NOVA_INODE_IN_MEM 0
+
+#define NOVA_CKPT 0
 
 #endif /* __NOVA_CONFIG_H_ */

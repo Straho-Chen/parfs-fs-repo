@@ -641,7 +641,7 @@ static int nova_stripe_csum_crc(struct super_block *sb, unsigned long strps,
 	unsigned long strp;
 	u32 csum;
 	u32 crc[8];
-	void *csum_addr, *csum_addr1;
+	void *csum_addr;
 	void *src_addr;
 	unsigned long irq_flags = 0;
 
@@ -678,25 +678,19 @@ static int nova_stripe_csum_crc(struct super_block *sb, unsigned long strps,
 		src_addr = crc;
 copy:
 		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
-		csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
 
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN * 8,
 				     &irq_flags);
 		if (support_clwb) {
 			memcpy(csum_addr, src_addr, NOVA_DATA_CSUM_LEN * 8);
-			memcpy(csum_addr1, src_addr, NOVA_DATA_CSUM_LEN * 8);
 		} else {
 			memcpy_to_pmem_nocache(csum_addr, src_addr,
-					       NOVA_DATA_CSUM_LEN * 8);
-			memcpy_to_pmem_nocache(csum_addr1, src_addr,
 					       NOVA_DATA_CSUM_LEN * 8);
 		}
 		nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN * 8,
 				   &irq_flags);
 		if (support_clwb) {
 			nova_flush_buffer(csum_addr, NOVA_DATA_CSUM_LEN * 8, 0);
-			nova_flush_buffer(csum_addr1, NOVA_DATA_CSUM_LEN * 8,
-					  0);
 		}
 
 		// next page
@@ -714,7 +708,6 @@ copy:
 			 blocknr, strps);
 	if (strps) {
 		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
-		csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1);
 		for (strp = 0; strp < strps; strp++) {
 			if (zero)
 				csum = sbi->zero_csum[0];
@@ -728,13 +721,10 @@ copy:
 					     &irq_flags);
 			memcpy_to_pmem_nocache(csum_addr, &csum,
 					       NOVA_DATA_CSUM_LEN);
-			memcpy_to_pmem_nocache(csum_addr1, &csum,
-					       NOVA_DATA_CSUM_LEN);
 			nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
 					   &irq_flags);
 
 			csum_addr += NOVA_DATA_CSUM_LEN;
-			csum_addr1 += NOVA_DATA_CSUM_LEN;
 
 			if (!zero)
 				strp_ptr += strp_size;
@@ -755,7 +745,7 @@ static int nova_stripe_csum_xxhash(struct super_block *sb, unsigned long strps,
 	size_t strp_size = NOVA_STRIPE_SIZE;
 	unsigned long strp;
 	u64 csum;
-	void *csum_addr, *csum_addr1;
+	void *csum_addr;
 	void *src_addr;
 	unsigned long irq_flags = 0;
 
@@ -774,13 +764,10 @@ static int nova_stripe_csum_xxhash(struct super_block *sb, unsigned long strps,
 		src_addr = &csum;
 copy:
 		csum_addr = nova_get_data_csum_addr(sb, blocknr + strp, 0);
-		csum_addr1 = nova_get_data_csum_addr(sb, blocknr + strp, 1);
 
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
 				     &irq_flags);
 		memcpy_to_pmem_nocache(csum_addr, src_addr, NOVA_DATA_CSUM_LEN);
-		memcpy_to_pmem_nocache(csum_addr1, src_addr,
-				       NOVA_DATA_CSUM_LEN);
 		nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
 				   &irq_flags);
 
@@ -854,8 +841,8 @@ bool nova_verify_data_csum(struct super_block *sb,
 	unsigned int strp_shift = NOVA_STRIPE_SHIFT;
 	unsigned long strp, strps_per_block, blocks, block;
 	void *strip = NULL;
-	u32 csum_calc, csum_nvmm0, csum_nvmm1;
-	u32 *csum_addr0, *csum_addr1;
+	u32 csum_calc, csum_nvmm;
+	u32 *csum_addr;
 	int error;
 	bool match;
 	unsigned long irq_flags = 0;
@@ -883,13 +870,9 @@ bool nova_verify_data_csum(struct super_block *sb,
 
 		match = true;
 		for (strp = 0; strp < strps_per_block; strp++) {
-			csum_addr0 = nova_get_data_csum_addr(sb, blocknr, 0) +
-				     strp * NOVA_DATA_CSUM_LEN;
-			csum_nvmm0 = le32_to_cpu(*csum_addr0);
-
-			csum_addr1 = nova_get_data_csum_addr(sb, blocknr, 1) +
-				     strp * NOVA_DATA_CSUM_LEN;
-			csum_nvmm1 = le32_to_cpu(*csum_addr1);
+			csum_addr = nova_get_data_csum_addr(sb, blocknr, 0) +
+				    strp * NOVA_DATA_CSUM_LEN;
+			csum_nvmm = le32_to_cpu(*csum_addr);
 
 			error = memcpy_mcsafe(strip, blockptr, strp_size);
 			if (error < 0) {
@@ -899,10 +882,14 @@ bool nova_verify_data_csum(struct super_block *sb,
 				match = false;
 				goto out;
 			} else {
+#if NOVA_XXHASH_CSUM
+				csum_calc =
+					xxh64(strip, strp_size, NOVA_INIT_CSUM);
+#else
 				csum_calc = nova_crc32c(NOVA_INIT_CSUM, strip,
 							strp_size);
-				match = (csum_calc == csum_nvmm0) ||
-					(csum_calc == csum_nvmm1);
+#endif
+				match = (csum_calc == csum_nvmm);
 			}
 
 			if (!match) {
@@ -915,52 +902,13 @@ bool nova_verify_data_csum(struct super_block *sb,
 				 *     data recovery to see if one csum is still good
 				 */
 				nova_dbg(
-					"%s: nova data corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
+					"%s: nova data corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x\n",
 					__func__, sih->ino, strp, block, blocks,
 					blockoff, blocknr, csum_calc,
-					csum_nvmm0, csum_nvmm1);
+					csum_nvmm);
 
 				// data corruption, roll back to old block on caller
 				goto out;
-			}
-
-			/* Getting here, match must be true, otherwise already breaking
-		 * out the for loop. Data is known good, either it's good in
-		 * nvmm, or good after recovery.
-		 */
-			if (csum_nvmm0 != csum_nvmm1) {
-				/* Getting here, data is known good but one checksum is
-			 * considered corrupted.
-			 */
-				nova_dbg(
-					"%s: nova checksum corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x, csum nvmm replica 0x%08x\n",
-					__func__, sih->ino, strp, block, blocks,
-					blockoff, blocknr, csum_calc,
-					csum_nvmm0, csum_nvmm1);
-
-				nova_memunlock_range(sb, csum_addr0,
-						     NOVA_DATA_CSUM_LEN,
-						     &irq_flags);
-				if (csum_nvmm0 != csum_calc) {
-					csum_nvmm0 = cpu_to_le32(csum_calc);
-					memcpy_to_pmem_nocache(
-						csum_addr0, &csum_nvmm0,
-						NOVA_DATA_CSUM_LEN);
-				}
-
-				if (csum_nvmm1 != csum_calc) {
-					csum_nvmm1 = cpu_to_le32(csum_calc);
-					memcpy_to_pmem_nocache(
-						csum_addr1, &csum_nvmm1,
-						NOVA_DATA_CSUM_LEN);
-				}
-				nova_memlock_range(sb, csum_addr0,
-						   NOVA_DATA_CSUM_LEN,
-						   &irq_flags);
-
-				nova_dbg(
-					"%s: nova checksum corruption repaired!\n",
-					__func__);
 			}
 		}
 	}
@@ -979,19 +927,19 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 {
 	struct nova_inode_info *si = NOVA_I(inode);
 	struct nova_inode_info_header *sih = &si->header;
-	unsigned long pgoff, length;
-	u64 nvmm, nvmm_off;
+	unsigned long pgoff, length, blocknr;
+	u64 nvmm;
 	char *nvmm_addr, *block;
 	int ret = 0;
 
 	pgoff = newsize >> nova_inode_blk_shift(sih);
 
-	nvmm = get_nvmm(sb, sih, NULL, pgoff);
-	if (nvmm == 0)
-		return -EFAULT;
-	nvmm_off = nova_get_block_off(sb, nvmm, sih->i_blk_type, 0);
-
+	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
 	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
+	blocknr = nova_get_blocknr(sb, nvmm, sih->i_blk_type);
+
+	nova_dbg_verbose("%s: nvmm: %#llx, nvmm_addr: %#llx, blocknr: %#lx\n",
+			 __func__, nvmm, (u64)nvmm_addr, blocknr);
 
 	length = nova_inode_blk_size(sih);
 
@@ -1007,7 +955,7 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 		goto out;
 	}
 
-	nova_update_block_csum(sb, length, nvmm, nvmm_addr, 0);
+	nova_update_block_csum(sb, length, blocknr, block, 0);
 
 out:
 	if (block != NULL)

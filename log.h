@@ -322,6 +322,10 @@ int nova_append_snapshot_info_entry(struct super_block *sb,
 				    struct snapshot_info *info,
 				    struct nova_snapshot_info_entry *data,
 				    struct nova_inode_update *update);
+void insert_old_entry(struct nova_inode_info_header *sih, u64 entry,
+		      u64 start_pgoff, int num_free);
+void free_old_entry(struct super_block *sb, struct nova_inode_info_header *sih,
+		    struct nova_file_write_entry *entryc);
 int nova_assign_write_entry(struct super_block *sb,
 			    struct nova_inode_info_header *sih,
 			    struct nova_file_write_entry *entry,

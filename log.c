@@ -118,7 +118,7 @@ nova_invalidate_write_entry(struct super_block *sb,
 		entryc = entry;
 	else {
 		entryc = &entry_copy;
-		if (!nova_verify_entry_csum(sb, entry, entryc))
+		if (!nova_get_entry_copy(sb, entry, entryc))
 			return -EIO;
 	}
 
@@ -149,8 +149,11 @@ unsigned int nova_free_old_entry(struct super_block *sb,
 		entryc = entry;
 	else {
 		entryc = &entry_copy;
-		if (!nova_verify_entry_csum(sb, entry, entryc))
+		if (!nova_get_entry_copy(sb, entry, entryc)) {
+			nova_dbg_trans("%s: old entry checksum failed\n",
+				       __func__);
 			return -EIO;
+		}
 	}
 
 	old_nvmm = get_nvmm(sb, sih, entryc, pgoff);
@@ -218,10 +221,10 @@ void nova_clear_last_page_tail(struct super_block *sb, struct inode *inode,
 	pgoff = newsize >> data_bits;
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
-	if (nvmm == 0)
-		return;
-
 	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
+
+	nova_dbg_verbose("%s: nvmm: %#llx, nvmm_addr: %#llx\n", __func__, nvmm,
+			 (u64)nvmm_addr);
 	nova_memunlock_range(sb, nvmm_addr + offset, length, &irq_flags);
 	memcpy_to_pmem_nocache(nvmm_addr + offset, sbi->zeroed_page, length);
 	nova_memlock_range(sb, nvmm_addr + offset, length, &irq_flags);
@@ -853,6 +856,48 @@ out:
 	return ret;
 }
 
+void insert_old_entry(struct nova_inode_info_header *sih, u64 entry,
+		      u64 start_pgoff, int num_free)
+{
+	struct old_entry *old = kmalloc(sizeof(struct old_entry), GFP_KERNEL);
+	old->entry = entry;
+	old->start_pgoff = start_pgoff;
+	old->num_free = num_free;
+	nova_dbg_verbose(
+		"%s: insert entry: %#llx, pgoff: %#llx, num_free: %d\n",
+		__func__, entry, start_pgoff, num_free);
+	list_add(&old->list, &sih->old_entry_list);
+	nova_dbg_verbose("%s: insert list finished\n", __func__);
+}
+
+void free_old_entry(struct super_block *sb, struct nova_inode_info_header *sih,
+		    struct nova_file_write_entry *entryc)
+{
+	struct old_entry *old, *tmp;
+	if (!list_empty(&sih->old_entry_list)) {
+		list_for_each_entry_safe(old, tmp, &sih->old_entry_list, list) {
+			nova_dbg_verbose(
+				"%s: free entry: %#llx, pgoff: %#llx, num_free: %d\n",
+				__func__, old->entry, old->start_pgoff,
+				old->num_free);
+
+			nova_free_old_entry(
+				sb, sih,
+				(struct nova_file_write_entry *)old->entry,
+				old->start_pgoff, old->num_free, true,
+				entryc->epoch_id);
+
+			nova_invalidate_write_entry(
+				sb, (struct nova_file_write_entry *)old->entry,
+				1, 0);
+
+			list_del(&old->list);
+			kfree(old);
+		}
+	}
+	INIT_LIST_HEAD(&sih->old_entry_list);
+}
+
 int nova_assign_write_entry(struct super_block *sb,
 			    struct nova_inode_info_header *sih,
 			    struct nova_file_write_entry *entry,
@@ -871,6 +916,8 @@ int nova_assign_write_entry(struct super_block *sb,
 	INIT_TIMING(assign_time);
 
 	NOVA_START_TIMING(assign_t, assign_time);
+	// free last old entry
+	free_old_entry(sb, sih, entryc);
 	for (i = 0; i < num; i++) {
 		curr_pgoff = start_pgoff + i;
 
@@ -886,13 +933,10 @@ int nova_assign_write_entry(struct super_block *sb,
 				 * so free the old one and store the new one to count the pages need to free
 				 */
 				if (start_old_entry && free)
-					nova_free_old_entry(sb, sih,
-							    start_old_entry,
-							    start_old_pgoff,
-							    num_free, false,
-							    entryc->epoch_id);
-				nova_invalidate_write_entry(sb, start_old_entry,
-							    1, 0);
+					insert_old_entry(sih,
+							 (u64)start_old_entry,
+							 start_old_pgoff,
+							 num_free);
 
 				start_old_entry = old_entry;
 				start_old_pgoff = curr_pgoff;
@@ -916,10 +960,8 @@ int nova_assign_write_entry(struct super_block *sb,
 	}
 
 	if (start_old_entry && free)
-		nova_free_old_entry(sb, sih, start_old_entry, start_old_pgoff,
-				    num_free, false, entryc->epoch_id);
-
-	nova_invalidate_write_entry(sb, start_old_entry, 1, 0);
+		insert_old_entry(sih, (u64)start_old_entry, start_old_pgoff,
+				 num_free);
 
 out:
 	NOVA_END_TIMING(assign_t, assign_time);

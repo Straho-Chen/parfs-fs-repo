@@ -2,6 +2,7 @@
 #define __SUPER_H
 
 #include <linux/fs.h>
+#include <linux/kfifo.h>
 #include "pmem_ar_block.h"
 
 /*
@@ -89,9 +90,19 @@ struct nova_super_block {
 #define NOVA_INODELIST_INO (6) /* Storage for Inode free list */
 #define NOVA_SNAPSHOT_INO (7) /* Storage for snapshot state */
 #define NOVA_TEST_PERF_INO (8)
+#define NOVA_CKPT_INO (9)
 
 /* Normal inode starts at 32 */
 #define NOVA_NORMAL_INODE_START (32)
+
+struct nova_ckpt {
+	// ino -> entry
+	struct radix_tree_root tree;
+	struct kfifo ring;
+	struct nova_inode_info_header *sih;
+	struct nova_inode *pi;
+	struct super_block *sb;
+};
 
 /*
  * NOVA super-block data in DRAM
@@ -109,8 +120,8 @@ struct nova_sb_info {
    * the pointer to the super block)
    */
 	phys_addr_t phys_addr;
-	void* meta_start_virt;
-	void* data_start_virt;
+	void *meta_start_virt;
+	void *data_start_virt;
 	void *replica_reserved_inodes_addr;
 	void *replica_sb_addr;
 
@@ -147,7 +158,7 @@ struct nova_sb_info {
 	int meta_nvm_num, data_nvm_num;
 	int delegation_ready;
 	struct nova_device_info block_info[PMEM_AR_MAX_DEVICE];
-	
+
 	struct proc_dir_entry *s_proc;
 
 	/* Snapshot related */
@@ -157,6 +168,9 @@ struct nova_sb_info {
 	/* Current epoch. volatile guarantees visibility */
 	volatile u64 s_epoch_id;
 	volatile int snapshot_taking;
+
+	/* Checkpoint related */
+	struct nova_ckpt *ckpt;
 
 	int mount_snapshot;
 	u64 mount_snapshot_epoch_id;

@@ -237,13 +237,11 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 		nova_dbg_delegation("%s: zero, flush_cache:%d\n", __func__,
 				    flush_cache);
 		NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
-		// NOVA_START_META_TIMING(bd_memcpy_w_t, memcpy_time);
 		if (flush_cache)
 			memset_nt((void *)kaddr, 0, bytes);
 		else
 			memset((void *)kaddr, 0, bytes);
 
-		// NOVA_END_META_TIMING(bd_memcpy_w_t, memcpy_time);
 		NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);
 		goto out;
 	}
@@ -261,7 +259,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 			    __func__, kaddr, uaddr, bytes);
 
 	NOVA_START_TIMING(agent_memcpy_w_t, memcpy_time);
-	// NOVA_START_META_TIMING(bd_memcpy_w_t, memcpy_time);
 
 #if !NOVA_KERNEL_COPY_USER_BUFFER
 	for (i = 0; i < tasks_index; i++) {
@@ -269,20 +266,11 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 				    __func__, tasks[i].kuaddr, tasks[i].size,
 				    kaddr);
 
-#if NOVA_NT_STORE
-		memcpy_to_pmem_nocache((void *)kaddr, (void *)tasks[i].kuaddr,
-				       tasks[i].size);
-#else
-		memcpy((void *)kaddr, (void *)tasks[i].kuaddr, tasks[i].size);
-#endif
+		memcpy_flushcache((void *)kaddr, (void *)tasks[i].kuaddr,
+				  tasks[i].size);
 
 		kaddr += tasks[i].size;
 	}
-
-#if !NOVA_NT_STORE
-	if (flush_cache)
-		nova_flush_buffer((void *)orig_kaddr, bytes, 0);
-#endif
 
 #else
 
@@ -309,7 +297,6 @@ static void do_write_request(struct mm_struct *mm, unsigned long kaddr,
 
 #endif
 
-	// NOVA_END_META_TIMING(bd_memcpy_w_t, memcpy_time);
 	NOVA_END_TIMING(agent_memcpy_w_t, memcpy_time);
 
 out:
