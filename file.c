@@ -1015,13 +1015,9 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			ret = -EFAULT;
 			goto out;
 		}
-		if (data_csum == 0 && data_parity == 0) {
-			NOVA_START_TIMING(fini_delegation_w_t,
-					  fini_delegation_time);
-			nova_complete_delegation(issued_cnt, completed_cnt);
-			NOVA_END_TIMING(fini_delegation_w_t,
-					fini_delegation_time);
-		}
+		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 		// restore blocknr
 		if (head) {
 			blocknr -= 1;
@@ -1062,12 +1058,6 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	}
 
 	sih->i_blocks += (total_blocks << (data_bits - sb->s_blocksize_bits));
-
-	if (data_csum > 0 || data_parity > 0) {
-		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
-		nova_complete_delegation(issued_cnt, completed_cnt);
-		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
-	}
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
 	NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
