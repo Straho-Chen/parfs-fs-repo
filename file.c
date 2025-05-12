@@ -925,52 +925,6 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		nova_dbg_verbose("%s: copy head: %lu, tail: %lu\n", __func__,
 				 head, tail);
 
-		// we do data csum on cow write, no need is_dele check
-		if (is_dele && (data_csum > 0 || data_parity > 0)) {
-			/* calculate data checksum and write csum to pmem */
-			NOVA_START_META_TIMING(bd_data_csum_t,
-					       bd_data_csum_time);
-#if NOVA_KERNEL_COPY_USER_BUFFER
-			ret = nova_protect_file_data(sb, inode, pos, bytes,
-						     ubuf_copy, blocknr);
-#else
-			ret = nova_protect_file_data(sb, inode, pos, bytes,
-						     (char *)buf, blocknr);
-#endif
-			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
-			if (ret)
-				goto out;
-		}
-
-		copied = bytes;
-		if (pos + copied > inode->i_size)
-			file_size = cpu_to_le64(pos + copied);
-		else
-			file_size = cpu_to_le64(inode->i_size);
-
-		NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
-		/* init log entry */
-		nova_init_file_write_entry(sb, sih, &entry_data, epoch_id,
-					   start_blk, allocated, blocknr, time,
-					   file_size);
-
-/* write entry to pm; Jm and M */
-/* may do gc here */
-#if NOVA_INODE_IN_MEM
-		ret = nova_append_file_write_entry(sb, pi, &inode_copy, inode,
-						   &entry_data, &update);
-#else
-		ret = nova_append_file_write_entry(sb, pi, NULL, inode,
-						   &entry_data, &update);
-#endif
-		NOVA_END_META_TIMING(bd_meta_write_t, bd_meta_write_time);
-
-		if (ret) {
-			nova_dbg("%s: append inode entry failed\n", __func__);
-			ret = -ENOSPC;
-			goto out;
-		}
-
 		aligned_num_blocks = (bytes - head - tail) >> PAGE_SHIFT;
 		nova_dbg_verbose("%s: last page aligned blocks: %lu\n",
 				 __func__, aligned_num_blocks);
@@ -1021,6 +975,55 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
+		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
+
+		// we do data csum on cow write, no need is_dele check
+		// 		if (is_dele && (data_csum > 0 || data_parity > 0)) {
+		// 			/* calculate data checksum and write csum to pmem */
+		// 			NOVA_START_META_TIMING(bd_data_csum_t,
+		// 					       bd_data_csum_time);
+		// #if NOVA_KERNEL_COPY_USER_BUFFER
+		// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
+		// 						     ubuf_copy, blocknr);
+		// #else
+		// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
+		// 						     (char *)buf, blocknr);
+		// #endif
+		// 			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
+		// 			if (ret)
+		// 				goto out;
+		// 		}
+
+		if (pos + copied > inode->i_size)
+			file_size = cpu_to_le64(pos + copied);
+		else
+			file_size = cpu_to_le64(inode->i_size);
+
+		NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
+		/* init log entry */
+		nova_init_file_write_entry(sb, sih, &entry_data, epoch_id,
+					   start_blk, allocated, blocknr, time,
+					   file_size);
+
+/* write entry to pm; Jm and M */
+/* may do gc here */
+#if NOVA_INODE_IN_MEM
+		ret = nova_append_file_write_entry(sb, pi, &inode_copy, inode,
+						   &entry_data, &update);
+#else
+		ret = nova_append_file_write_entry(sb, pi, NULL, inode,
+						   &entry_data, &update);
+#endif
+		NOVA_END_META_TIMING(bd_meta_write_t, bd_meta_write_time);
+
+		if (ret) {
+			nova_dbg("%s: append inode entry failed\n", __func__);
+			ret = -ENOSPC;
+			goto out;
+		}
+
 		nova_dbg_verbose("Write: %p, %#lx\n", kmem, copied);
 		if (copied > 0) {
 			status = copied;
@@ -1055,10 +1058,6 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	}
 
 	sih->i_blocks += (total_blocks << (data_bits - sb->s_blocksize_bits));
-
-	NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
-	nova_complete_delegation(issued_cnt, completed_cnt);
-	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 
 	nova_memunlock_inode(sb, pi, &irq_flags);
 	NOVA_START_META_TIMING(bd_meta_write_t, bd_meta_write_time);
