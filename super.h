@@ -204,6 +204,8 @@ struct nova_sb_info {
 	struct free_list *free_lists;
 	unsigned long per_data_list_blocks;
 	unsigned long per_meta_list_blocks;
+
+	atomic_t write_requests;
 };
 
 static inline struct nova_sb_info *NOVA_SB(struct super_block *sb)

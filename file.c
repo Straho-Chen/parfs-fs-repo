@@ -771,6 +771,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	size_t aligned_num_blocks;
 	unsigned long blocknr_loop;
 	bool is_dele = false;
+	bool try_do_dele;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -787,30 +788,42 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		goto out;
 	}
 
+	atomic_inc(&sbi->write_requests);
+
+	if (atomic_read(&sbi->write_requests) > NOVA_DELE_START_THREADS) {
+		try_do_dele = true;
+	} else {
+		try_do_dele = false;
+	}
+
 	/*
 	 * let user buffer to be kernel thread shared and 64-byte aligned
 	 */
 
+	if (try_do_dele) {
 #if NOVA_KERNEL_COPY_USER_BUFFER
-	ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
-	ubuf_copy_src = ubuf_copy;
-	if (ubuf_copy == NULL) {
-		nova_err(sb, "%s: user kernel buffer allocation error\n",
-			 __func__);
-		return -ENOMEM;
-	}
-	ubuf_copy = (char *)(((unsigned long)ubuf_copy + 63) & ~0x3f);
-	ret = copy_from_user(ubuf_copy, buf, len);
-	if (ret) {
-		nova_dbg("%s: copy_from_user failed %ld\n", __func__, ret);
-		ret = -EFAULT;
-		goto out;
-	}
+		ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
+		ubuf_copy_src = ubuf_copy;
+		if (ubuf_copy == NULL) {
+			nova_err(sb,
+				 "%s: user kernel buffer allocation error\n",
+				 __func__);
+			return -ENOMEM;
+		}
+		ubuf_copy = (char *)(((unsigned long)ubuf_copy + 63) & ~0x3f);
+		ret = copy_from_user(ubuf_copy, buf, len);
+		if (ret) {
+			nova_dbg("%s: copy_from_user failed %ld\n", __func__,
+				 ret);
+			ret = -EFAULT;
+			goto out;
+		}
 #endif
 
-	memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
-	memset(completed_cnt, 0,
-	       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
+		memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
+		memset(completed_cnt, 0,
+		       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
+	}
 
 	pos = *ppos;
 
@@ -910,12 +923,12 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			ret = nova_handle_head_tail_blocks(
 				sb, inode, pos, bytes, blocknr, ubuf_copy,
 				&head, &tail, 0, issued_cnt, completed_cnt,
-				true, &is_dele);
+				try_do_dele, &is_dele);
 #else
 			ret = nova_handle_head_tail_blocks(
 				sb, inode, pos, bytes, blocknr, (char *)buf,
 				&head, &tail, 0, issued_cnt, completed_cnt,
-				true, &is_dele);
+				try_do_dele, &is_dele);
 #endif
 
 			if (ret)
@@ -950,14 +963,14 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 				sb, kmem, (void *)(ubuf_copy + head),
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
-				len >= NOVA_WRITE_WAIT_THRESHOLD, true,
+				len >= NOVA_WRITE_WAIT_THRESHOLD, try_do_dele,
 				&is_dele);
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem, (void *)(buf + head),
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
-				len >= NOVA_WRITE_WAIT_THRESHOLD, true,
+				len >= NOVA_WRITE_WAIT_THRESHOLD, try_do_dele,
 				&is_dele);
 #endif
 		} else {
@@ -982,16 +995,16 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 						 PAGE_SIZE * i),
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
-					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					len >= NOVA_WRITE_WAIT_THRESHOLD,
+					try_do_dele, &is_dele);
 #else
 				copied += do_nova_nvmm_write(
 					sb, kmem,
 					(void *)(buf + head + PAGE_SIZE * i),
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
-					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					len >= NOVA_WRITE_WAIT_THRESHOLD,
+					try_do_dele, &is_dele);
 #endif
 			}
 		}
@@ -1001,7 +1014,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			ret = -EFAULT;
 			goto out;
 		}
-		if (data_csum == 0 && data_parity == 0) {
+		if (data_csum == 0 && data_parity == 0 && is_dele) {
 			NOVA_START_TIMING(fini_delegation_w_t,
 					  fini_delegation_time);
 			nova_complete_delegation(issued_cnt, completed_cnt);
@@ -1144,6 +1157,7 @@ out:
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
 					      begin_tail, update.tail);
 
+	atomic_dec(&sbi->write_requests);
 	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);

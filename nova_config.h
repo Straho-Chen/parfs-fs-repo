@@ -60,6 +60,8 @@
 // #define NOVA_READ_DELEGATION_LIMIT (32 * 1024)
 #define NOVA_READ_DELEGATION_LIMIT (4 * 1024)
 
+#define NOVA_DELE_START_THREADS 2
+
 /* Number of default delegation threads per socket */
 #define NOVA_DEF_DELE_THREADS_PER_SOCKET 1
 

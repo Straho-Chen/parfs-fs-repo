@@ -783,6 +783,7 @@ static inline void set_default_opts(struct nova_sb_info *sbi)
 	if (!write_dele_size) {
 		write_dele_size = NOVA_WRITE_DELEGATION_LIMIT;
 	}
+	atomic_set(&sbi->write_requests, 0);
 }
 
 static void nova_root_check(struct super_block *sb, struct nova_inode *root_pi)

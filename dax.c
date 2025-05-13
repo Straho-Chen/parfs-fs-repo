@@ -851,7 +851,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	size_t head, tail;
 	size_t aligned_num_blocks;
 	unsigned long blocknr_loop;
-	bool fair_new = false, append = false, is_dele = false;
+	bool fair_new = false, append = false, is_dele = false, try_do_dele;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -872,26 +872,38 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	 * let user buffer to be kernel thread shared and 64-byte aligned
 	 */
 
+	atomic_inc(&sbi->write_requests);
+
+	if (atomic_read(&sbi->write_requests) > NOVA_DELE_START_THREADS) {
+		try_do_dele = true;
+	} else {
+		try_do_dele = false;
+	}
+
+	if (try_do_dele) {
 #if NOVA_KERNEL_COPY_USER_BUFFER
-	ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
-	ubuf_copy_src = ubuf_copy;
-	if (ubuf_copy == NULL) {
-		nova_err(sb, "%s: user kernel buffer allocation error\n",
-			 __func__);
-		return -ENOMEM;
-	}
-	ubuf_copy = (char *)(((unsigned long)ubuf_copy + 63) & ~0x3f);
-	ret = copy_from_user(ubuf_copy, buf, len);
-	if (ret) {
-		nova_dbg("%s: copy_from_user failed %ld\n", __func__, ret);
-		ret = -EFAULT;
-		goto out;
-	}
+		ubuf_copy = kmalloc(len + 64, GFP_KERNEL);
+		ubuf_copy_src = ubuf_copy;
+		if (ubuf_copy == NULL) {
+			nova_err(sb,
+				 "%s: user kernel buffer allocation error\n",
+				 __func__);
+			return -ENOMEM;
+		}
+		ubuf_copy = (char *)(((unsigned long)ubuf_copy + 63) & ~0x3f);
+		ret = copy_from_user(ubuf_copy, buf, len);
+		if (ret) {
+			nova_dbg("%s: copy_from_user failed %ld\n", __func__,
+				 ret);
+			ret = -EFAULT;
+			goto out;
+		}
 #endif
 
-	memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
-	memset(completed_cnt, 0,
-	       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
+		memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
+		memset(completed_cnt, 0,
+		       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
+	}
 
 	pos = *ppos;
 
@@ -1012,13 +1024,13 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, append,
-					issued_cnt, completed_cnt, hole_fill,
+					issued_cnt, completed_cnt, try_do_dele,
 					&is_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail, append,
-					issued_cnt, completed_cnt, hole_fill,
+					issued_cnt, completed_cnt, try_do_dele,
 					&is_dele);
 #endif
 			} else {
@@ -1027,12 +1039,12 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, 1, issued_cnt,
-					completed_cnt, hole_fill, &is_dele);
+					completed_cnt, false, &is_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail, 1,
-					issued_cnt, completed_cnt, hole_fill,
+					issued_cnt, completed_cnt, false,
 					&is_dele);
 #endif
 			}
@@ -1064,14 +1076,14 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				sb, kmem, (void *)(ubuf_copy + head),
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
-				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
+				len >= NOVA_WRITE_WAIT_THRESHOLD, try_do_dele,
 				&is_dele);
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem, (void *)(buf + head),
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
-				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
+				len >= NOVA_WRITE_WAIT_THRESHOLD, try_do_dele,
 				&is_dele);
 #endif
 		} else {
@@ -1095,8 +1107,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 						 PAGE_SIZE * i),
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
-					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					len >= NOVA_WRITE_WAIT_THRESHOLD,
+					try_do_dele, &is_dele);
 #else
 				copied += do_nova_nvmm_write(
 					sb, kmem,
@@ -1120,25 +1132,20 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
-		if (hole_fill || is_dele) {
-			if (data_csum > 0 || data_parity > 0) {
-				/* calculate data checksum and write csum to pmem */
-				NOVA_START_META_TIMING(bd_data_csum_t,
-						       bd_data_csum_time);
+		if (is_dele && (data_csum > 0 || data_parity > 0)) {
+			/* calculate data checksum and write csum to pmem */
+			NOVA_START_META_TIMING(bd_data_csum_t,
+					       bd_data_csum_time);
 #if NOVA_KERNEL_COPY_USER_BUFFER
-				ret = nova_protect_file_data(sb, inode, pos,
-							     bytes, ubuf_copy,
-							     blocknr);
+			ret = nova_protect_file_data(sb, inode, pos, bytes,
+						     ubuf_copy, blocknr);
 #else
-				ret = nova_protect_file_data(sb, inode, pos,
-							     bytes, (char *)buf,
-							     blocknr);
+			ret = nova_protect_file_data(sb, inode, pos, bytes,
+						     (char *)buf, blocknr);
 #endif
-				NOVA_END_META_TIMING(bd_data_csum_t,
-						     bd_data_csum_time);
-				if (ret)
-					goto out;
-			}
+			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
+			if (ret)
+				goto out;
 		}
 
 		if (pos + copied > inode->i_size)
@@ -1301,6 +1308,7 @@ out:
 		nova_cleanup_incomplete_write(sb, sih, blocknr, allocated,
 					      begin_tail, update.tail);
 
+	atomic_dec(&sbi->write_requests);
 	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(inplace_write_t, inplace_write_time);
 	NOVA_STATS_ADD(inplace_write_bytes, written);
