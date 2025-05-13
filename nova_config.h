@@ -91,4 +91,6 @@
 
 #define NOVA_CKPT 0
 
+#define NOVA_PARTIAL_CSUM 1
+
 #endif /* __NOVA_CONFIG_H_ */
