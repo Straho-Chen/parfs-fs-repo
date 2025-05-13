@@ -903,6 +903,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		memset(issued_cnt, 0, sizeof(long) * NOVA_MAX_SOCKET);
 		memset(completed_cnt, 0,
 		       sizeof(struct nova_notifyer) * NOVA_MAX_SOCKET);
+	} else {
+		ubuf_copy = (char *)buf;
 	}
 
 	pos = *ppos;
