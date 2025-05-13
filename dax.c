@@ -870,7 +870,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	size_t head, tail;
 	size_t aligned_num_blocks;
 	unsigned long blocknr_loop;
-	bool fair_new = false, append = false, is_dele = false;
+	bool fair_new = false, append = false, is_dele = false, cur_loop_dele;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -965,6 +965,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	is_dele = false;
 	while (num_blocks > 0) {
 		hole_fill = false;
+		cur_loop_dele = false;
 		offset = pos & blocksize_mask;
 		start_blk = pos >> data_bits;
 
@@ -1032,13 +1033,13 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, append,
 					issued_cnt, completed_cnt, hole_fill,
-					&is_dele);
+					&cur_loop_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail, append,
 					issued_cnt, completed_cnt, hole_fill,
-					&is_dele);
+					&cur_loop_dele);
 #endif
 			} else {
 // just do copy, no cow
@@ -1046,15 +1047,18 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, 1, issued_cnt,
-					completed_cnt, hole_fill, &is_dele);
+					completed_cnt, hole_fill,
+					&cur_loop_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail, 1,
 					issued_cnt, completed_cnt, hole_fill,
-					&is_dele);
+					&cur_loop_dele);
 #endif
 			}
+			if (cur_loop_dele)
+				is_dele = cur_loop_dele;
 			if (ret)
 				goto out;
 		}
@@ -1084,14 +1088,14 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
-				&is_dele);
+				&cur_loop_dele);
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem, (void *)(buf + head),
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
-				&is_dele);
+				&cur_loop_dele);
 #endif
 		} else {
 			for (i = 0; i < aligned_num_blocks; i++) {
@@ -1115,7 +1119,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
 					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					&cur_loop_dele);
 #else
 				copied += do_nova_nvmm_write(
 					sb, kmem,
@@ -1123,10 +1127,12 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
 					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					&cur_loop_dele);
 #endif
 			}
 		}
+		if (cur_loop_dele)
+			is_dele = cur_loop_dele;
 		if (copied) {
 			nova_err(sb, "%s: delegation failed to copy all\n",
 				 __func__);
@@ -1139,7 +1145,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
-		if (hole_fill || is_dele) {
+		if (cur_loop_dele) {
 			if (data_csum > 0 || data_parity > 0) {
 				/* calculate data checksum and write csum to pmem */
 				NOVA_START_META_TIMING(bd_data_csum_t,

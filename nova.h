@@ -1000,6 +1000,8 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			left = memcpy_to_pmem_nocache(kmem_dest, kubuf_src,
 						      bytes);
 		}
+		if (is_dele)
+			*is_dele = false;
 		NOVA_END_META_TIMING(bd_sync_data_t, memcpy_time);
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
 	} else {
