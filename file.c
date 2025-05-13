@@ -1126,7 +1126,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 out:
 	if (is_dele) {
 		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+		NOVA_START_META_TIMING(bd_wait_complete_t,
+				       fini_delegation_time);
 		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_META_TIMING(bd_wait_complete_t, fini_delegation_time);
 		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 	}
 

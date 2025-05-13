@@ -1283,8 +1283,10 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 out:
 	NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+	NOVA_START_META_TIMING(bd_wait_complete_t, fini_delegation_time);
 	if (is_dele)
 		nova_complete_delegation(issued_cnt, completed_cnt);
+	NOVA_END_META_TIMING(bd_wait_complete_t, fini_delegation_time);
 	NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 
 #if NOVA_CKPT
