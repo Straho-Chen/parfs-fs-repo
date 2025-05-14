@@ -935,27 +935,66 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		}
 		/* Now copy from user buf (in inode data block granularity) */
 		copied = 0;
-
-		kmem = nova_get_virt_addr_from_offset(
-			inode->i_sb,
-			nova_get_block_off(sb, blocknr, sih->i_blk_type, 0), 0);
-		socket = nova_block_to_socket(sbi, blocknr, sih->i_blk_type, 0);
+		if (sbi->data_nvm_num == 1) {
+			// all data allocate to one socket, write once
+			kmem = nova_get_virt_addr_from_offset(
+				inode->i_sb,
+				nova_get_block_off(sb, blocknr, sih->i_blk_type,
+						   0),
+				0);
+			socket = nova_block_to_socket(sbi, blocknr,
+						      sih->i_blk_type, 0);
 
 #if NOVA_KERNEL_COPY_USER_BUFFER
-		copied += do_nova_nvmm_write(
-			sb, kmem, (void *)(ubuf_copy + head),
-			aligned_num_blocks << PAGE_SHIFT, 0, socket, 0, 1, 0,
-			issued_cnt, completed_cnt,
-			len >= NOVA_WRITE_WAIT_THRESHOLD, true, &is_dele);
+			copied += do_nova_nvmm_write(
+				sb, kmem, (void *)(ubuf_copy + head),
+				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
+				1, 0, issued_cnt, completed_cnt,
+				len >= NOVA_WRITE_WAIT_THRESHOLD, true,
+				&is_dele);
 #else
-		copied += do_nova_nvmm_write(sb, kmem, (void *)(buf + head),
-					     aligned_num_blocks << PAGE_SHIFT,
-					     0, socket, 0, 1, 0, issued_cnt,
-					     completed_cnt,
-					     len >= NOVA_WRITE_WAIT_THRESHOLD,
-					     true, &is_dele);
+			copied += do_nova_nvmm_write(
+				sb, kmem, (void *)(buf + head),
+				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
+				1, 0, issued_cnt, completed_cnt,
+				len >= NOVA_WRITE_WAIT_THRESHOLD, true,
+				&is_dele);
 #endif
+		} else {
+			// data striped, write in block granularity
+			for (i = 0; i < aligned_num_blocks; i++) {
+				/* Now copy from user buf */
+				blocknr_loop = blocknr + i;
+				nova_dbg_verbose("%s: copy to blocknr: %#lx\n",
+						 __func__, blocknr_loop);
+				kmem = nova_get_virt_addr_from_offset(
+					inode->i_sb,
+					nova_get_block_off(sb, blocknr_loop,
+							   sih->i_blk_type, 0),
+					0);
+				socket = nova_block_to_socket(
+					sbi, blocknr_loop, sih->i_blk_type, 0);
 
+#if NOVA_KERNEL_COPY_USER_BUFFER
+				copied += do_nova_nvmm_write(
+					sb, kmem,
+					(void *)(ubuf_copy + head +
+						 PAGE_SIZE * i),
+					PAGE_SIZE, 0, socket, 0, 1, 0,
+					issued_cnt, completed_cnt,
+					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
+					&is_dele);
+#else
+				copied += do_nova_nvmm_write(
+					sb, kmem,
+					(void *)(buf + head + PAGE_SIZE * i),
+					PAGE_SIZE, 0, socket, 0, 1, 0,
+					issued_cnt, completed_cnt,
+					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
+					&is_dele);
+#endif
+			}
+		}
 		if (copied) {
 			nova_err(sb, "%s: delegation failed to copy all\n",
 				 __func__);
@@ -1087,7 +1126,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 out:
 	if (is_dele) {
 		NOVA_START_TIMING(fini_delegation_w_t, fini_delegation_time);
+		NOVA_START_META_TIMING(bd_wait_complete_t,
+				       fini_delegation_time);
 		nova_complete_delegation(issued_cnt, completed_cnt);
+		NOVA_END_META_TIMING(bd_wait_complete_t, fini_delegation_time);
 		NOVA_END_TIMING(fini_delegation_w_t, fini_delegation_time);
 	}
 
