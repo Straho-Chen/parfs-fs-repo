@@ -491,6 +491,8 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 				sb, nvmmoff, 0);
 
 			/* load data from nvmm to blockbuf */
+			nova_dbg_verbose("%s: copy head from nvm %lu\n",
+					 __func__, offset);
 			ret = memcpy_mcsafe(blockbuf, blockptr, offset);
 			if (ret < 0)
 				goto out;
@@ -598,6 +600,8 @@ eblk:
 			blockptr = (u8 *)nova_get_virt_addr_from_offset(
 				sb, nvmmoff, 0);
 
+			nova_dbg_verbose("%s: copy tail from nvm %lu\n",
+					 __func__, blocksize - eblk_offset);
 			ret = memcpy_mcsafe(blockbuf + eblk_offset,
 					    blockptr + eblk_offset,
 					    blocksize - eblk_offset);
@@ -800,6 +804,25 @@ void check_alter_pages(struct super_block *sb, u64 curr_p)
 	}
 }
 
+static int nova_partial_csum_crc32(struct super_block *sb,
+				   unsigned long blocknr, u8 *block,
+				   size_t size)
+{
+	void *csum_addr;
+	u64 csum;
+	unsigned long irq_flags = 0;
+
+	csum = nova_crc32c(NOVA_INIT_CSUM, block, size);
+
+	csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+
+	nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, &irq_flags);
+	memcpy(csum_addr, &csum, NOVA_DATA_CSUM_LEN);
+	nova_flush_buffer(csum_addr, NOVA_DATA_CSUM_LEN, 0);
+	nova_memlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, &irq_flags);
+	return 0;
+}
+
 /*
  * Do an inplace write.  This function assumes that the lock on the inode is
  * already held.
@@ -851,7 +874,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	size_t head, tail;
 	size_t aligned_num_blocks;
 	unsigned long blocknr_loop;
-	bool fair_new = false, append = false, is_dele = false;
+	bool fair_new = false, append = false, is_dele = false, cur_loop_dele;
 
 	int cond_cnt = 0;
 	long issued_cnt[NOVA_MAX_SOCKET];
@@ -946,6 +969,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	is_dele = false;
 	while (num_blocks > 0) {
 		hole_fill = false;
+		cur_loop_dele = false;
 		offset = pos & blocksize_mask;
 		start_blk = pos >> data_bits;
 
@@ -1013,13 +1037,13 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, append,
 					issued_cnt, completed_cnt, hole_fill,
-					&is_dele);
+					&cur_loop_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail, append,
 					issued_cnt, completed_cnt, hole_fill,
-					&is_dele);
+					&cur_loop_dele);
 #endif
 			} else {
 // just do copy, no cow
@@ -1027,15 +1051,18 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					ubuf_copy, &head, &tail, 1, issued_cnt,
-					completed_cnt, hole_fill, &is_dele);
+					completed_cnt, hole_fill,
+					&cur_loop_dele);
 #else
 				ret = nova_handle_head_tail_blocks(
 					sb, inode, pos, bytes, blocknr,
 					(char *)buf, &head, &tail, 1,
 					issued_cnt, completed_cnt, hole_fill,
-					&is_dele);
+					&cur_loop_dele);
 #endif
 			}
+			if (cur_loop_dele)
+				is_dele = cur_loop_dele;
 			if (ret)
 				goto out;
 		}
@@ -1065,14 +1092,14 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
-				&is_dele);
+				&cur_loop_dele);
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem, (void *)(buf + head),
 				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
 				1, 0, issued_cnt, completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
-				&is_dele);
+				&cur_loop_dele);
 #endif
 		} else {
 			for (i = 0; i < aligned_num_blocks; i++) {
@@ -1096,7 +1123,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
 					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					&cur_loop_dele);
 #else
 				copied += do_nova_nvmm_write(
 					sb, kmem,
@@ -1104,42 +1131,51 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 					PAGE_SIZE, 0, socket, 0, 1, 0,
 					issued_cnt, completed_cnt,
 					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
-					&is_dele);
+					&cur_loop_dele);
 #endif
 			}
 		}
+		if (cur_loop_dele)
+			is_dele = cur_loop_dele;
 		if (copied) {
 			nova_err(sb, "%s: delegation failed to copy all\n",
 				 __func__);
 			ret = -EFAULT;
 			goto out;
 		}
+		copied = bytes;
+
+// 		if (cur_loop_dele) {
+// 			nova_dbg_verbose(
+// 				"%s: cal data csum, pos: %llu, len: %lu\n",
+// 				__func__, pos, len);
+// 			// partial write is sync we don't need to calculate checksum
+// 			if (data_csum > 0 || data_parity > 0) {
+// 				/* calculate data checksum and write csum to pmem */
+// 				NOVA_START_META_TIMING(bd_data_csum_t,
+// 						       bd_data_csum_time);
+// #if NOVA_KERNEL_COPY_USER_BUFFER
+// 				ret = nova_protect_file_data(
+// 					sb, inode, pos,
+// 					aligned_num_blocks << PAGE_SHIFT,
+// 					ubuf_copy + head, blocknr);
+// #else
+// 				ret = nova_protect_file_data(
+// 					sb, inode, pos,
+// 					aligned_num_blocks << PAGE_SHIFT,
+// 					(char *)(buf + head), blocknr);
+// #endif
+// 				NOVA_END_META_TIMING(bd_data_csum_t,
+// 						     bd_data_csum_time);
+// 				if (ret)
+// 					goto out;
+// 			}
+// 		}
+
 		// restore blocknr
 		if (head) {
 			blocknr -= 1;
 		}
-		copied = bytes;
-
-		// 		if (hole_fill || is_dele) {
-		// 			if (data_csum > 0 || data_parity > 0) {
-		// 				/* calculate data checksum and write csum to pmem */
-		// 				NOVA_START_META_TIMING(bd_data_csum_t,
-		// 						       bd_data_csum_time);
-		// #if NOVA_KERNEL_COPY_USER_BUFFER
-		// 				ret = nova_protect_file_data(sb, inode, pos,
-		// 							     bytes, ubuf_copy,
-		// 							     blocknr);
-		// #else
-		// 				ret = nova_protect_file_data(sb, inode, pos,
-		// 							     bytes, (char *)buf,
-		// 							     blocknr);
-		// #endif
-		// 				NOVA_END_META_TIMING(bd_data_csum_t,
-		// 						     bd_data_csum_time);
-		// 				if (ret)
-		// 					goto out;
-		// 			}
-		// 		}
 
 		if (pos + copied > inode->i_size)
 			file_size = cpu_to_le64(pos + copied);
