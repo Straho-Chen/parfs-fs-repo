@@ -491,6 +491,8 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 				sb, nvmmoff, 0);
 
 			/* load data from nvmm to blockbuf */
+			nova_dbg_verbose("%s: copy head from nvm %lu\n",
+					 __func__, offset);
 			ret = memcpy_mcsafe(blockbuf, blockptr, offset);
 			if (ret < 0)
 				goto out;
@@ -598,6 +600,8 @@ eblk:
 			blockptr = (u8 *)nova_get_virt_addr_from_offset(
 				sb, nvmmoff, 0);
 
+			nova_dbg_verbose("%s: copy tail from nvm %lu\n",
+					 __func__, blocksize - eblk_offset);
 			ret = memcpy_mcsafe(blockbuf + eblk_offset,
 					    blockptr + eblk_offset,
 					    blocksize - eblk_offset);
@@ -1139,37 +1143,38 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			ret = -EFAULT;
 			goto out;
 		}
-		// restore blocknr
-		if (head) {
-			blocknr -= 1;
-		}
 		copied = bytes;
 
 		if (cur_loop_dele) {
+			nova_dbg_verbose(
+				"%s: cal data csum, pos: %llu, len: %lu\n",
+				__func__, pos, len);
+			// partial write is sync we don't need to calculate checksum
 			if (data_csum > 0 || data_parity > 0) {
 				/* calculate data checksum and write csum to pmem */
 				NOVA_START_META_TIMING(bd_data_csum_t,
 						       bd_data_csum_time);
-				if (NOVA_PARTIAL_CSUM && hole_fill && append) {
-					ret = nova_partial_csum_crc32(
-						sb, blocknr, ubuf_copy, bytes);
-				} else {
 #if NOVA_KERNEL_COPY_USER_BUFFER
-					ret = nova_protect_file_data(sb, inode,
-								     pos, bytes,
-								     ubuf_copy,
-								     blocknr);
+				ret = nova_protect_file_data(
+					sb, inode, pos,
+					aligned_num_blocks << PAGE_SHIFT,
+					ubuf_copy + head, blocknr);
 #else
-					ret = nova_protect_file_data(
-						sb, inode, pos, bytes,
-						(char *)buf, blocknr);
+				ret = nova_protect_file_data(
+					sb, inode, pos,
+					aligned_num_blocks << PAGE_SHIFT,
+					(char *)(buf + head), blocknr);
 #endif
-				}
 				NOVA_END_META_TIMING(bd_data_csum_t,
 						     bd_data_csum_time);
 				if (ret)
 					goto out;
 			}
+		}
+
+		// restore blocknr
+		if (head) {
+			blocknr -= 1;
 		}
 
 		if (pos + copied > inode->i_size)
