@@ -54,7 +54,7 @@
 
 /* write delegation limits: 256 */
 // #define NOVA_WRITE_DELEGATION_LIMIT 256
-#define NOVA_WRITE_DELEGATION_LIMIT (4 * 1024)
+#define NOVA_WRITE_DELEGATION_LIMIT (64 * 1024)
 
 /* read delegation limits: 32K */
 // #define NOVA_READ_DELEGATION_LIMIT (32 * 1024)
