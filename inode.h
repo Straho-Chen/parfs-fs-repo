@@ -40,7 +40,7 @@ struct nova_inode {
 	__le32 i_uid; /* Owner Uid */
 	__le32 i_gid; /* Group Id */
 	__le32 i_generation; /* File version (for NFS) */
-	__le32 pad;
+	__le32 recovery_latest_trans_invalid;
 	__le64 nova_ino; /* nova inode number */
 
 	__le64 log_head; /* Log head pointer */

@@ -915,7 +915,7 @@ nova_check_old_entry(struct super_block *sb, struct nova_inode_info_header *sih,
 	unsigned long old_nvmm, nvmm;
 	unsigned long index;
 	int i;
-	int ret;
+	// int ret;
 
 	entry = (struct nova_file_write_entry *)entry_addr;
 
@@ -930,13 +930,13 @@ nova_check_old_entry(struct super_block *sb, struct nova_inode_info_header *sih,
 			return 0;
 	}
 
-	old_nvmm = get_nvmm(sb, sih, entryc, pgoff);
+	// old_nvmm = get_nvmm(sb, sih, entryc, pgoff);
 
-	ret = nova_append_data_to_snapshot(sb, entryc, old_nvmm, num_free,
-					   epoch_id);
+	// ret = nova_append_data_to_snapshot(sb, entryc, old_nvmm, num_free,
+	// 				   epoch_id);
 
-	if (ret != 0)
-		return ret;
+	// if (ret != 0)
+	// 	return ret;
 
 	index = pgoff - base;
 	for (i = 0; i < num_free; i++) {
@@ -946,7 +946,7 @@ nova_check_old_entry(struct super_block *sb, struct nova_inode_info_header *sih,
 		index++;
 	}
 
-	return ret;
+	return 0;
 }
 
 static int nova_set_ring_array(struct super_block *sb,
@@ -999,30 +999,6 @@ static int nova_set_ring_array(struct super_block *sb,
 		ring->entry_array[index] = (u64)entry;
 		ring->nvmm_array[index] =
 			(u64)(get_nvmm(sb, sih, entry, pgoff));
-	}
-
-	return 0;
-}
-
-static int nova_clear_file_bm(struct super_block *sb,
-			      struct nova_inode_info_header *sih,
-			      struct task_ring *ring, struct scan_bitmap *bm,
-			      unsigned long base, unsigned long last_blocknr)
-{
-	unsigned long nvmm, pgoff;
-
-	if (last_blocknr >= base + MAX_PGOFF)
-		last_blocknr = MAX_PGOFF - 1;
-	else
-		last_blocknr -= base;
-
-	for (pgoff = 0; pgoff <= last_blocknr; pgoff++) {
-		nvmm = ring->nvmm_array[pgoff];
-		if (nvmm) {
-			clear_bm(nvmm, bm, BM_4K);
-			ring->nvmm_array[pgoff] = 0;
-			ring->entry_array[pgoff] = 0;
-		}
 	}
 
 	return 0;
@@ -1167,6 +1143,27 @@ static unsigned long nova_traverse_file_write_entry(
 	return max_blocknr;
 }
 
+static void
+nova_clear_file_entry_data_blocks(struct super_block *sb,
+				  struct nova_inode_info_header *sih,
+				  struct nova_file_write_entry *entry,
+				  struct nova_file_write_entry *entryc,
+				  struct task_ring *ring, unsigned long base)
+{
+	unsigned long pgoff;
+	unsigned long index;
+
+	for (pgoff = entryc->pgoff; pgoff < entryc->pgoff + entryc->num_pages;
+	     pgoff++) {
+		index = pgoff - base;
+		ring->nvmm_array[index] = 0;
+		ring->entry_array[index] = 0;
+	}
+
+	entry->invalid_pages = entryc->num_pages;
+	nova_flush_buffer(&entry->invalid_pages, sizeof(u32), 0);
+}
+
 static int nova_traverse_file_inode_log(struct super_block *sb,
 					struct nova_inode *pi,
 					struct nova_inode_info_header *sih,
@@ -1183,9 +1180,8 @@ static int nova_traverse_file_inode_log(struct super_block *sb,
 	u64 curr_p;
 	u64 next;
 	u8 type;
-	int invalid = 0;
 	u64 trans_curr;
-	struct nova_sb_info *sbi = NOVA_SB(sb);
+	bool loop_end = false;
 
 	btype = pi->i_blk_type;
 	data_bits = blk_type_to_shift[btype];
@@ -1218,7 +1214,8 @@ again:
 		set_bm(curr_p >> PAGE_SHIFT, bm, BM_4K);
 	}
 
-	while (curr_p != pi->log_tail) {
+	// while (curr_p != pi->log_tail) {
+	while (true) {
 		if (goto_next_page(sb, curr_p)) {
 			curr_p = next_log_page(sb, curr_p);
 			if (base == 0) {
@@ -1250,85 +1247,14 @@ again:
 			curr_p += sizeof(struct nova_link_change_entry);
 			break;
 		case FILE_WRITE:
-			if (WENTRY(entryc)->trans_id <= sih->ckpt_id) {
-				curr_last = nova_traverse_file_write_entry(
-					sb, sih, WENTRY(entry), WENTRY(entryc),
-					ring, base, bm);
-				curr_p += sizeof(struct nova_file_write_entry);
-			} else {
-				trans_curr = curr_p;
-				entry = (void *)nova_get_virt_addr_from_offset(
-					sb, trans_curr, 1);
+			if (WENTRY(entryc)->trans_id != sih->trans_id) {
 				sih->trans_id = WENTRY(entry)->trans_id;
-				// check whole trans valid
-				while (type == FILE_WRITE &&
-				       WENTRY(entry)->trans_id ==
-					       sih->trans_id) {
-					if (nova_vaild_data_csum(sb, sih,
-								 entry)) {
-					} else {
-						// invalid entry
-						invalid = 1;
-					}
-					trans_curr += sizeof(
-						struct nova_file_write_entry);
-					entry = (void *)
-						nova_get_virt_addr_from_offset(
-							sb, trans_curr, 1);
-					type = nova_get_entry_type(entry);
-				}
-				if (invalid) {
-					// if invalid free whole trans
-					trans_curr = curr_p;
-					entry = (void *)
-						nova_get_virt_addr_from_offset(
-							sb, trans_curr, 1);
-					while (type == FILE_WRITE &&
-					       WENTRY(entry)->trans_id ==
-						       sih->trans_id) {
-						WENTRY(entry)->invalid_pages =
-							WENTRY(entry)->num_pages;
-						u64 addr = nova_get_addr_off(
-							NOVA_SB(sb), entry, 1);
-						nova_inc_page_invalid_entries(
-							sb, addr);
-						nova_update_entry_csum(entry);
-						trans_curr += sizeof(
-							struct nova_file_write_entry);
-						entry = (void *)
-							nova_get_virt_addr_from_offset(
-								sb, trans_curr,
-								1);
-						type = nova_get_entry_type(
-							entry);
-					}
-				} else {
-					// all valid set allocation info
-					trans_curr = curr_p;
-					entry = (void *)
-						nova_get_virt_addr_from_offset(
-							sb, trans_curr, 1);
-					while (type == FILE_WRITE &&
-					       WENTRY(entry)->trans_id ==
-						       sih->trans_id) {
-						curr_last =
-							nova_traverse_file_write_entry(
-								sb, sih,
-								WENTRY(entry),
-								WENTRY(entryc),
-								ring, base, bm);
-						trans_curr += sizeof(
-							struct nova_file_write_entry);
-						entry = (void *)
-							nova_get_virt_addr_from_offset(
-								sb, trans_curr,
-								1);
-						type = nova_get_entry_type(
-							entry);
-					}
-				}
-				curr_p = trans_curr;
+				trans_curr = curr_p;
 			}
+			curr_last = nova_traverse_file_write_entry(
+				sb, sih, WENTRY(entry), WENTRY(entryc), ring,
+				base, bm);
+			curr_p += sizeof(struct nova_file_write_entry);
 			if (last_blocknr < curr_last)
 				last_blocknr = curr_last;
 			break;
@@ -1336,10 +1262,108 @@ again:
 			curr_p += sizeof(struct nova_mmap_entry);
 			break;
 		default:
-			nova_dbg("%s: unknown type %d, 0x%llx\n", __func__,
-				 type, curr_p);
-			NOVA_ASSERT(0);
-			BUG();
+			nova_dbg_verbose("End of log entry\n");
+			loop_end = true;
+			break;
+		}
+		if (loop_end)
+			break;
+	}
+	if (curr_p != pi->log_tail) {
+		nova_dbg_verbose("%s: pi tail corrupt\n", __func__);
+		// restore tail
+		pi->log_tail = curr_p;
+		nova_update_tail(pi, curr_p, 1);
+	}
+
+	if (sih->ckpt_id != sih->trans_id) {
+		nova_dbg_verbose("%s: check latest trans: %llu\n", __func__, sih->trans_id);
+		// check last trans data blocks
+		u64 tmp = trans_curr;
+		bool invalid = false;
+		loop_end = false;
+		nova_dbg_verbose("%s: trans_curr: %#llx, curr: %#llx\n", __func__, trans_curr, curr_p);
+		while (tmp != curr_p) {
+			if (goto_next_page(sb, tmp)) {
+				tmp = next_log_page(sb, tmp);
+			}
+			entry = (void *)nova_get_virt_addr_from_offset(sb, tmp,
+								       1);
+			type = nova_get_entry_type(entry);
+			switch (type) {
+			case SET_ATTR:
+				tmp += sizeof(struct nova_setattr_logentry);
+				break;
+			case LINK_CHANGE:
+				tmp += sizeof(struct nova_link_change_entry);
+				break;
+			case FILE_WRITE:
+				if (!nova_vaild_data_csum(sb, sih, entry)) {
+					// csum corrupt, roll back whole transaction
+					nova_dbg_verbose(
+						"%s: data csum corrupt, roll back whole transaction\n",
+						__func__);
+					invalid = true;
+					loop_end = true;
+					break;
+				}
+				tmp += sizeof(struct nova_file_write_entry);
+				break;
+			case MMAP_WRITE:
+				tmp += sizeof(struct nova_mmap_entry);
+				break;
+			default:
+				// nova_dbg_verbose("\n");
+				loop_end = true;
+				break;
+			}
+			if (loop_end)
+				break;
+		}
+		if (invalid) {
+			nova_dbg_verbose("%s: inode %lu is invalid\n", __func__,
+					 sih->ino);
+			pi->recovery_latest_trans_invalid = 1;
+			nova_flush_buffer(&pi->recovery_latest_trans_invalid,
+					  sizeof(u32), 0);
+			tmp = trans_curr;
+			loop_end = false;
+			while (tmp != curr_p) {
+				if (goto_next_page(sb, tmp)) {
+					tmp = next_log_page(sb, tmp);
+				}
+				entry = (void *)nova_get_virt_addr_from_offset(
+					sb, tmp, 1);
+				type = nova_get_entry_type(entry);
+
+				switch (type) {
+				case SET_ATTR:
+					tmp += sizeof(
+						struct nova_setattr_logentry);
+					break;
+				case LINK_CHANGE:
+					tmp += sizeof(
+						struct nova_link_change_entry);
+					break;
+				case FILE_WRITE:
+					// free data blocks, remove from nvmm_array is enough
+					nova_clear_file_entry_data_blocks(
+						sb, sih, entry, entry, ring,
+						base);
+					tmp += sizeof(
+						struct nova_file_write_entry);
+					break;
+				case MMAP_WRITE:
+					tmp += sizeof(struct nova_mmap_entry);
+					break;
+				default:
+					// nova_dbg_verbose("\n");
+					loop_end = true;
+					break;
+				}
+				if (loop_end)
+					break;
+			}
 		}
 	}
 
@@ -1819,7 +1843,8 @@ int nova_recovery(struct super_block *sb)
 	nova_ckpt_restore(sb);
 #endif
 
-	value = nova_try_normal_recovery(sb);
+	// value = nova_try_normal_recovery(sb);
+	value = false;
 	if (value) {
 		nova_dbg("NOVA: Normal shutdown\n");
 	} else {
@@ -1853,6 +1878,7 @@ out:
 		Timingstats[recovery_t] +=
 			(end.tv_sec - start.tv_sec) * 1000000000 +
 			(end.tv_nsec - start.tv_nsec);
+		nova_info("recovery_time: %llu\n", Timingstats[recovery_t]);
 	}
 
 	if (!value)

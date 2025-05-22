@@ -367,20 +367,18 @@ int nova_reset_vma_csum_parity(struct super_block *sb, struct vma_item *item)
 	return ret;
 }
 
-static void nova_rebuild_handle_write_entry(
-	struct super_block *sb, struct nova_inode_info_header *sih,
-	struct nova_inode_rebuild *reb, struct nova_file_write_entry *entry,
-	struct nova_file_write_entry *entryc)
+static void
+nova_rebuild_handle_write_entry(struct super_block *sb, struct nova_inode *pi,
+				struct nova_inode_info_header *sih,
+				struct nova_inode_rebuild *reb,
+				struct nova_file_write_entry *entry,
+				struct nova_file_write_entry *entryc)
 {
 	if (entryc->num_pages != entryc->invalid_pages) {
 		/*
-		 * call free for the latest trans_id and later trans
+		 * call free later
 		 */
-		if (entryc->trans_id >= sih->ckpt_id) {
-			nova_assign_write_entry(sb, sih, entry, entryc, true);
-		} else {
-			nova_assign_write_entry(sb, sih, entry, entryc, false);
-		}
+		nova_assign_write_entry(sb, sih, entry, entryc, false);
 	}
 
 	if (entryc->trans_id >= reb->trans_id) {
@@ -445,6 +443,8 @@ static int nova_rebuild_file_inode_tree(struct super_block *sb,
 	u64 curr_p;
 	u8 type;
 	int ret;
+	u64 trans_curr;
+	int latest_trans_valid = !pi->recovery_latest_trans_invalid;
 
 	NOVA_START_TIMING(rebuild_file_t, rebuild_time);
 	nova_dbg_verbose("Rebuild file inode %llu tree\n", ino);
@@ -520,7 +520,14 @@ static int nova_rebuild_file_inode_tree(struct super_block *sb,
 			break;
 		case FILE_WRITE:
 			entry = (struct nova_file_write_entry *)addr;
-			nova_rebuild_handle_write_entry(sb, sih, reb, entry,
+			if (latest_trans_valid) {
+				// latest trans valid, need to free overlapping old entry
+				if (entry->trans_id != sih->trans_id) {
+					sih->trans_id = entry->trans_id;
+					trans_curr = curr_p;
+				}
+			}
+			nova_rebuild_handle_write_entry(sb, pi, sih, reb, entry,
 							WENTRY(entryc));
 			curr_p += sizeof(struct nova_file_write_entry);
 			break;
@@ -535,6 +542,22 @@ static int nova_rebuild_file_inode_tree(struct super_block *sb,
 			NOVA_ASSERT(0);
 			curr_p += sizeof(struct nova_file_write_entry);
 			break;
+		}
+	}
+
+	if (latest_trans_valid) {
+		while (trans_curr != curr_p) {
+			if (goto_next_page(sb, trans_curr)) {
+				trans_curr = next_log_page(sb, trans_curr);
+			}
+			entry = (void *)nova_get_virt_addr_from_offset(
+				sb, trans_curr, 1);
+			type = nova_get_entry_type(entry);
+			if (type == FILE_WRITE) {
+				nova_assign_write_entry(sb, sih, entry, entryc,
+							true);
+			}
+			trans_curr += sizeof(struct nova_file_write_entry);
 		}
 	}
 

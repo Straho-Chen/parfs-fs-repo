@@ -16,6 +16,7 @@
  */
 
 #include "nova.h"
+#include "nova_def.h"
 
 static int get_entry_copy(struct super_block *sb, void *entry, u32 *entry_csum,
 			  size_t *entry_size, void *entry_copy)
@@ -682,6 +683,11 @@ copy:
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN * 8,
 				     &irq_flags);
 		if (support_clwb) {
+			for (int i = 0; i < 8; i++) {
+				nova_dbg_verbose(
+					"%s: blocknr: %#lx, strip %d, data csum: 0x%08x\n",
+					__func__, blocknr, i, crc[i]);
+			}
 			memcpy(csum_addr, src_addr, NOVA_DATA_CSUM_LEN * 8);
 		} else {
 			memcpy_to_pmem_nocache(csum_addr, src_addr,
@@ -874,7 +880,8 @@ bool nova_verify_data_csum(struct super_block *sb,
 				    strp * NOVA_DATA_CSUM_LEN;
 			csum_nvmm = le32_to_cpu(*csum_addr);
 
-			error = memcpy_mcsafe(strip, blockptr, strp_size);
+			error = memcpy_mcsafe(
+				strip, blockptr + strp * strp_size, strp_size);
 			if (error < 0) {
 				nova_dbg(
 					"%s: media error in data strip detected!\n",
@@ -902,13 +909,16 @@ bool nova_verify_data_csum(struct super_block *sb,
 				 *     data recovery to see if one csum is still good
 				 */
 				nova_dbg(
-					"%s: nova data corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block offset %lu, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x\n",
+					"%s: nova data corruption detected! inode %lu, strp %#lx block %#lx of blocks %#lx, block nr %#lx, csum calc 0x%08x, csum nvmm 0x%08x\n",
 					__func__, sih->ino, strp, block, blocks,
-					blockoff, blocknr, csum_calc,
-					csum_nvmm);
+					blocknr, csum_calc, csum_nvmm);
 
 				// data corruption, roll back to old block on caller
 				goto out;
+			} else {
+				nova_dbg_verbose(
+					"%s: blocknr: %#lx, strip %ld, data csum: 0x%08x\n",
+					__func__, blocknr, strp, csum_nvmm);
 			}
 		}
 	}
