@@ -843,6 +843,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	struct nova_inode_update update;
 	char *ubuf_copy, *ubuf_copy_src = NULL;
 	ssize_t written = 0;
+	ssize_t meta_written = 0;
 	loff_t pos;
 	size_t count, offset, copied;
 	unsigned long start_blk, num_blocks, ent_blks = 0;
@@ -1167,6 +1168,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 #endif
 				NOVA_END_META_TIMING(bd_data_csum_t,
 						     bd_data_csum_time);
+				meta_written += nova_write_csum_size(
+					sb, aligned_num_blocks << PAGE_SHIFT);
 				if (ret)
 					goto out;
 			}
@@ -1204,6 +1207,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			NOVA_END_META_TIMING(bd_meta_write_t,
 					     bd_meta_write_time);
 
+			meta_written += sizeof(struct nova_file_write_entry);
 			if (ret) {
 				nova_dbg("%s: append inode entry failed\n",
 					 __func__);
@@ -1236,6 +1240,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				// TODO: file_size might be changed to the [pgoff, pgoff+size]
 				entry->size = file_size;
 				nova_flush_buffer(&entry->size, sizeof(u64), 1);
+				meta_written += sizeof(u64);
 			} else {
 				// otherwise, start a transaction
 				entry_info.type = FILE_WRITE;
@@ -1246,6 +1251,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				entry_info.inplace = 1;
 				nova_inplace_update_write_entry(
 					sb, inode, entry, &entry_info);
+				meta_written +=
+					sizeof(struct nova_file_write_entry);
 			}
 			NOVA_END_META_TIMING(bd_meta_write_t,
 					     bd_meta_write_time);
@@ -1342,6 +1349,7 @@ out:
 	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(inplace_write_t, inplace_write_time);
 	NOVA_STATS_ADD(inplace_write_bytes, written);
+	NOVA_STATS_ADD(inplace_meta_write_bytes, meta_written);
 
 	if (ubuf_copy_src)
 		kfree(ubuf_copy_src);

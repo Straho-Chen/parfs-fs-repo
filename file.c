@@ -742,6 +742,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	struct nova_inode_update update;
 	char *ubuf_copy, *ubuf_copy_src = NULL;
 	ssize_t written = 0;
+	ssize_t meta_written = 0;
 	loff_t pos;
 	size_t count, offset, copied;
 	unsigned long start_blk, num_blocks;
@@ -1027,6 +1028,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 						     (char *)buf, blocknr);
 #endif
 			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
+			meta_written += nova_write_csum_size(sb, bytes);
 			if (ret)
 				goto out;
 		}
@@ -1063,6 +1065,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		if (copied > 0) {
 			status = copied;
 			written += copied;
+			meta_written += sizeof(struct nova_file_write_entry);
 			pos += copied;
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			ubuf_copy += copied;
@@ -1150,6 +1153,7 @@ out:
 	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);
+	NOVA_STATS_ADD(cow_meta_write_bytes, meta_written);
 	if (ubuf_copy_src)
 		kfree(ubuf_copy_src);
 
