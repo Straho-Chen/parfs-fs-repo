@@ -343,4 +343,6 @@ static inline void cpu_topology_free(int **socket_cpu)
 #define NOVA_DEFALUT_BLOCK_SHIFT blk_type_to_shift[NOVA_DEFAULT_BLOCK_TYPE]
 #define NOVA_DEFALUT_BLOCK_SIZE blk_type_to_size[NOVA_DEFAULT_BLOCK_TYPE]
 
+#define NOVA_ANY_NODE -1
+
 #endif /* _LINUX_NOVA_DEF_H */

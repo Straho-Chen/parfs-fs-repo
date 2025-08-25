@@ -180,7 +180,7 @@ static inline void nova_memunlock_journal(struct super_block *sb,
 					  unsigned long *flags)
 {
 	void *addr =
-		nova_get_virt_addr_from_offset(sb, PAGE_SIZE * JOURNAL_START, 1);
+		nova_get_virt_addr_from_offset(sb, PAGE_SIZE * JOURNAL_START);
 
 	if (nova_range_check(sb, addr, PAGE_SIZE))
 		return;
@@ -193,7 +193,7 @@ static inline void nova_memlock_journal(struct super_block *sb,
 					unsigned long *flags)
 {
 	void *addr =
-		nova_get_virt_addr_from_offset(sb, PAGE_SIZE * JOURNAL_START, 1);
+		nova_get_virt_addr_from_offset(sb, PAGE_SIZE * JOURNAL_START);
 
 	if (nova_is_protected(sb))
 		__nova_memlock_range(addr, PAGE_SIZE, flags);

@@ -39,8 +39,7 @@ void nova_write_ckpt_entry(struct nova_ckpt *ckpt,
 						ckpt->sih, ckpt->sih->log_tail,
 						size, MAIN_LOG, 0, &extended);
 		nova_dbg_ckpt("%s: alloc entry: %#llx\n", __func__, curr);
-		entry_in_nvm =
-			nova_get_virt_addr_from_offset(ckpt->sb, curr, 1);
+		entry_in_nvm = nova_get_virt_addr_from_offset(ckpt->sb, curr);
 		entry_in_nvm->ino = entry->ino;
 		entry_in_nvm->latest_trans_id = entry->latest_trans_id;
 		nova_flush_buffer(entry, size, 0);
@@ -178,7 +177,7 @@ void nova_ckpt_restore(struct super_block *sb)
 		}
 
 		entry = (struct nova_ckpt_entry *)
-			nova_get_virt_addr_from_offset(sb, curr, 1);
+			nova_get_virt_addr_from_offset(sb, curr);
 
 		radix_tree_insert(&sbi->ckpt->tree, entry->ino, entry);
 		curr += size;

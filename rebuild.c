@@ -163,7 +163,7 @@ static int nova_rebuild_inode_finish(struct super_block *sb,
 	nova_update_inode_checksum(pi, 1);
 	if (metadata_csum) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, sih->alter_pi_addr, 1);
+			sb, sih->alter_pi_addr);
 		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
@@ -359,7 +359,7 @@ int nova_reset_vma_csum_parity(struct super_block *sb, struct vma_item *item)
 					     end_index);
 
 	if (item->mmap_entry) {
-		entry = nova_get_virt_addr_from_offset(sb, item->mmap_entry, 1);
+		entry = nova_get_virt_addr_from_offset(sb, item->mmap_entry);
 		ret = nova_invalidate_logentry(sb, entry, MMAP_WRITE, 0);
 	}
 
@@ -405,8 +405,8 @@ nova_find_prev_entry(struct super_block *sb, struct nova_inode_info_header *sih,
 		// not head
 		prev_curr = curr - sizeof(struct nova_file_write_entry);
 		entry = (struct nova_file_write_entry
-				 *)(nova_get_virt_addr_from_offset(
-			sb, prev_curr, 1));
+				 *)(nova_get_virt_addr_from_offset(sb,
+								   prev_curr));
 	} else {
 		// head
 		while (tmp != curr) {
@@ -418,8 +418,8 @@ nova_find_prev_entry(struct super_block *sb, struct nova_inode_info_header *sih,
 			tmp += sizeof(struct nova_file_write_entry);
 		}
 		entry = (struct nova_file_write_entry
-				 *)(nova_get_virt_addr_from_offset(
-			sb, prev_curr, 1));
+				 *)(nova_get_virt_addr_from_offset(sb,
+								   prev_curr));
 	}
 
 	return entry;
@@ -480,7 +480,7 @@ static int nova_rebuild_file_inode_tree(struct super_block *sb,
 			BUG();
 		}
 
-		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 
 		if (metadata_csum == 0)
 			entryc = addr;
@@ -551,7 +551,7 @@ static int nova_rebuild_file_inode_tree(struct super_block *sb,
 				trans_curr = next_log_page(sb, trans_curr);
 			}
 			entry = (void *)nova_get_virt_addr_from_offset(
-				sb, trans_curr, 1);
+				sb, trans_curr);
 			type = nova_get_entry_type(entry);
 			if (type == FILE_WRITE) {
 				nova_assign_write_entry(sb, sih, entry, entryc,
@@ -598,9 +598,9 @@ static void nova_reassign_last_dentry(struct super_block *sb,
 	} else {
 		old_dentry =
 			(struct nova_dentry *)nova_get_virt_addr_from_offset(
-				sb, sih->last_dentry, 1);
+				sb, sih->last_dentry);
 		dentry = (struct nova_dentry *)nova_get_virt_addr_from_offset(
-			sb, curr_p, 1);
+			sb, curr_p);
 		if (dentry->trans_id >= old_dentry->trans_id)
 			sih->last_dentry = curr_p;
 	}
@@ -709,7 +709,7 @@ int nova_rebuild_dir_inode_tree(struct super_block *sb, struct nova_inode *pi,
 			BUG();
 		}
 
-		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 
 		if (metadata_csum == 0)
 			entryc = addr;
@@ -791,8 +791,7 @@ int nova_rebuild_inode(struct super_block *sb, struct nova_inode_info *si,
 	if (ret)
 		return ret;
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
-								 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
 	// We need this valid in case we need to evict the inode.
 
 	nova_init_header(sb, sih, __le16_to_cpu(pi->i_mode));
@@ -883,7 +882,7 @@ int nova_restore_snapshot_table(struct super_block *sb, int just_init)
 			BUG();
 		}
 
-		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 
 		if (metadata_csum == 0)
 			entryc = addr;

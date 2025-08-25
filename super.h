@@ -26,8 +26,6 @@ struct nova_super_block {
 	__le32 s_padding32;
 	__le32 s_blocksize; /* blocksize in bytes */
 	__le64 s_size; /* total size of fs in bytes */
-	__le64 s_meta_size;
-	__le64 s_data_size;
 	char s_volume_name[16]; /* volume name */
 
 	/* all the dynamic fields should go here */
@@ -84,13 +82,12 @@ struct nova_super_block {
                                   * associated with each allocation.           \
                                   * The data actually lives in linked          \
                                   * lists in INODE_TABLE0_START. */
-#define NOVA_DATA_BLOCKNODE_INO (3) /* Storage for data allocator state */
-#define NOVA_META_BLOCKNODE_INO (4) /* Storage for meta allocator state */
-#define NOVA_LITEJOURNAL_INO (5) /* Storage for lightweight journals */
-#define NOVA_INODELIST_INO (6) /* Storage for Inode free list */
-#define NOVA_SNAPSHOT_INO (7) /* Storage for snapshot state */
-#define NOVA_TEST_PERF_INO (8)
-#define NOVA_CKPT_INO (9)
+#define NOVA_BLOCKNODE_INO (3) /* Storage for data allocator state */
+#define NOVA_LITEJOURNAL_INO (4) /* Storage for lightweight journals */
+#define NOVA_INODELIST_INO (5) /* Storage for Inode free list */
+#define NOVA_SNAPSHOT_INO (6) /* Storage for snapshot state */
+#define NOVA_TEST_PERF_INO (7)
+#define NOVA_CKPT_INO (8)
 
 /* Normal inode starts at 32 */
 #define NOVA_NORMAL_INODE_START (32)
@@ -120,13 +117,11 @@ struct nova_sb_info {
    * the pointer to the super block)
    */
 	phys_addr_t phys_addr;
-	void *meta_start_virt;
-	void *data_start_virt;
+	void *start_virt;
 	void *replica_reserved_inodes_addr;
 	void *replica_sb_addr;
 
-	unsigned long data_num_blocks;
-	size_t meta_num_blocks;
+	size_t num_blocks;
 
 	/* TODO: Remove this, since it's unused */
 	/*
@@ -154,8 +149,6 @@ struct nova_sb_info {
 	struct mutex s_lock; /* protects the SB's buffer-head */
 
 	int cpus, sockets;
-	int meta_head_nvm_idx, data_head_nvm_idx;
-	int meta_nvm_num, data_nvm_num;
 	int delegation_ready;
 	struct nova_device_info block_info[PMEM_AR_MAX_DEVICE];
 
@@ -202,8 +195,7 @@ struct nova_sb_info {
 
 	/* per cpu and per socket free block list */
 	struct free_list *free_lists;
-	unsigned long per_data_list_blocks;
-	unsigned long per_meta_list_blocks;
+	unsigned long per_list_blocks;
 };
 
 static inline struct nova_sb_info *NOVA_SB(struct super_block *sb)
@@ -226,7 +218,7 @@ static inline struct nova_super_block *nova_get_super(struct super_block *sb)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 
-	return (struct nova_super_block *)sbi->meta_start_virt;
+	return (struct nova_super_block *)sbi->start_virt;
 }
 
 struct super_block *nova_read_super(struct super_block *sb, void *data,

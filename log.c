@@ -66,7 +66,7 @@ static int nova_execute_invalidate_reassign_logentry(struct super_block *sb,
 	}
 
 	if (invalid) {
-		u64 addr = nova_get_addr_off(NOVA_SB(sb), entry, 1);
+		u64 addr = nova_get_addr_off(NOVA_SB(sb), entry);
 
 		nova_inc_page_invalid_entries(sb, addr);
 	}
@@ -221,7 +221,7 @@ void nova_clear_last_page_tail(struct super_block *sb, struct inode *inode,
 	pgoff = newsize >> data_bits;
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
-	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
+	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm);
 
 	nova_dbg_verbose("%s: nvmm: %#llx, nvmm_addr: %#llx\n", __func__, nvmm,
 			 (u64)nvmm_addr);
@@ -321,7 +321,7 @@ static int nova_update_old_dentry(struct super_block *sb, struct inode *dir,
 		links_count += link_change;
 	dentry->links_count = cpu_to_le16(links_count);
 
-	addr = nova_get_addr_off(NOVA_SB(sb), dentry, 1);
+	addr = nova_get_addr_off(NOVA_SB(sb), dentry);
 	nova_inc_page_invalid_entries(sb, addr);
 
 	/* Update checksum */
@@ -439,7 +439,7 @@ static int nova_append_log_entry(struct super_block *sb, struct nova_inode *pi,
 	nova_dbg_trans("%s: inode %lu attr change entry @ %#llx\n", __func__,
 		       sih->ino, curr_p);
 
-	entry = nova_get_virt_addr_from_offset(sb, curr_p, 1);
+	entry = nova_get_virt_addr_from_offset(sb, curr_p);
 	/* inode is already updated with attr */
 	nova_memunlock_range(sb, entry, size, &irq_flags);
 	memset(entry, 0, size);
@@ -449,8 +449,7 @@ static int nova_append_log_entry(struct super_block *sb, struct nova_inode *pi,
 	update->curr_entry = curr_p;
 	update->tail = curr_p + size;
 
-	memset(nova_get_virt_addr_from_offset(sb, update->tail, 1), 0,
-	       sizeof(u8));
+	memset(nova_get_virt_addr_from_offset(sb, update->tail), 0, sizeof(u8));
 
 	if (metadata_csum) {
 		alter_curr_p = nova_get_append_head(sb, pi, pic, sih,
@@ -463,8 +462,7 @@ static int nova_append_log_entry(struct super_block *sb, struct nova_inode *pi,
 		if (alter_curr_p == 0)
 			return -ENOSPC;
 
-		alter_entry =
-			nova_get_virt_addr_from_offset(sb, alter_curr_p, 1);
+		alter_entry = nova_get_virt_addr_from_offset(sb, alter_curr_p);
 		nova_memunlock_range(sb, alter_entry, size, &irq_flags);
 		memset(alter_entry, 0, size);
 		nova_update_log_entry(sb, inode, alter_entry, entry_info);
@@ -589,7 +587,7 @@ static int nova_invalidate_setattr_entry(struct super_block *sb,
 	void *addr;
 	int ret;
 
-	addr = (void *)nova_get_virt_addr_from_offset(sb, last_setattr, 1);
+	addr = (void *)nova_get_virt_addr_from_offset(sb, last_setattr);
 	old_entry = (struct nova_setattr_logentry *)addr;
 
 	if (metadata_csum == 0)
@@ -636,7 +634,7 @@ static int nova_can_inplace_update_setattr(struct super_block *sb,
 	last_log = sih->last_setattr;
 	if (last_log) {
 		entry = (struct nova_setattr_logentry *)
-			nova_get_virt_addr_from_offset(sb, last_log, 1);
+			nova_get_virt_addr_from_offset(sb, last_log);
 		/* Do not overwrite setsize entry */
 		if (entry->attr & ATTR_SIZE)
 			return 0;
@@ -660,7 +658,7 @@ static int nova_inplace_update_setattr_entry(struct super_block *sb,
 			 __func__, inode->i_ino);
 	last_log = sih->last_setattr;
 	entry = (struct nova_setattr_logentry *)nova_get_virt_addr_from_offset(
-		sb, last_log, 1);
+		sb, last_log);
 
 	entry_info.type = SET_ATTR;
 	entry_info.attr = attr;
@@ -733,7 +731,7 @@ int nova_invalidate_link_change_entry(struct super_block *sb,
 	if (old_link_change == 0)
 		return 0;
 
-	addr = (void *)nova_get_virt_addr_from_offset(sb, old_link_change, 1);
+	addr = (void *)nova_get_virt_addr_from_offset(sb, old_link_change);
 	old_entry = (struct nova_link_change_entry *)addr;
 
 	if (metadata_csum == 0)
@@ -769,7 +767,7 @@ static int nova_can_inplace_update_lcentry(struct super_block *sb,
 	last_log = sih->last_link_change;
 	if (last_log) {
 		entry = (struct nova_link_change_entry *)
-			nova_get_virt_addr_from_offset(sb, last_log, 1);
+			nova_get_virt_addr_from_offset(sb, last_log);
 		if (entry->epoch_id == epoch_id)
 			return 1;
 	}
@@ -787,7 +785,7 @@ static int nova_inplace_update_lcentry(struct super_block *sb,
 
 	last_log = sih->last_link_change;
 	entry = (struct nova_link_change_entry *)nova_get_virt_addr_from_offset(
-		sb, last_log, 1);
+		sb, last_log);
 
 	entry_info.type = LINK_CHANGE;
 	entry_info.epoch_id = epoch_id;
@@ -1228,10 +1226,10 @@ static int nova_coalesce_log_pages(struct super_block *sb,
 
 	if (prev_blocknr) {
 		/* Link prev block and newly allocated head block */
-		curr_block = nova_get_block_off(sb, prev_blocknr, btype, 1);
+		curr_block = nova_get_block_off(sb, prev_blocknr, btype);
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr_block, 1);
-		next_page = nova_get_block_off(sb, first_blocknr, btype, 1);
+			nova_get_virt_addr_from_offset(sb, curr_block);
+		next_page = nova_get_block_off(sb, first_blocknr, btype);
 		nova_memunlock_block(sb, curr_page, &irq_flags);
 		nova_set_next_page_address(sb, curr_page, next_page, 0);
 		nova_memlock_block(sb, curr_page, &irq_flags);
@@ -1239,12 +1237,11 @@ static int nova_coalesce_log_pages(struct super_block *sb,
 
 	// link the new pages
 	for (i = 0; i < num_pages - 1; i++) {
-		curr_block =
-			nova_get_block_off(sb, first_blocknr + i, btype, 1);
+		curr_block = nova_get_block_off(sb, first_blocknr + i, btype);
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr_block, 1);
+			nova_get_virt_addr_from_offset(sb, curr_block);
 		next_blocknr = first_blocknr + i + 1;
-		next_page = nova_get_block_off(sb, next_blocknr, btype, 1);
+		next_page = nova_get_block_off(sb, next_blocknr, btype);
 		nova_memunlock_block(sb, curr_page, &irq_flags);
 		nova_set_page_num_entries(sb, curr_page, 0, 0);
 		nova_set_page_invalid_entries(sb, curr_page, 0, 0);
@@ -1254,10 +1251,10 @@ static int nova_coalesce_log_pages(struct super_block *sb,
 
 	/* Last page */
 	curr_block =
-		nova_get_block_off(sb, first_blocknr + num_pages - 1, btype, 1);
+		nova_get_block_off(sb, first_blocknr + num_pages - 1, btype);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr_block, 1);
+			sb, curr_block);
 	nova_memunlock_block(sb, curr_page, &irq_flags);
 	nova_set_page_num_entries(sb, curr_page, 0, 0);
 	nova_set_page_invalid_entries(sb, curr_page, 0, 0);
@@ -1280,7 +1277,7 @@ int nova_allocate_inode_log_pages(struct super_block *sb,
 	int ret_pages = 0;
 
 	allocated = nova_new_log_blocks(sb, sih, &new_inode_blocknr, num_pages,
-					ALLOC_NO_INIT, cpuid, from_tail);
+					ALLOC_NO_INIT, cpuid, from_tail, -1);
 
 	if (allocated <= 0) {
 		nova_err(sb, "ERROR: no inode log page available: %d %d\n",
@@ -1302,7 +1299,7 @@ int nova_allocate_inode_log_pages(struct super_block *sb,
 	while (num_pages) {
 		allocated = nova_new_log_blocks(sb, sih, &new_inode_blocknr,
 						num_pages, ALLOC_NO_INIT, cpuid,
-						from_tail);
+						from_tail, -1);
 
 		nova_dbg_verbose("Alloc %d log blocks @ 0x%lx\n", allocated,
 				 new_inode_blocknr);
@@ -1319,7 +1316,7 @@ int nova_allocate_inode_log_pages(struct super_block *sb,
 		prev_blocknr = new_inode_blocknr + allocated - 1;
 	}
 
-	*new_block = nova_get_block_off(sb, first_blocknr, sih->i_blk_type, 1);
+	*new_block = nova_get_block_off(sb, first_blocknr, sih->i_blk_type);
 
 	return ret_pages;
 }
@@ -1456,7 +1453,7 @@ static u64 nova_extend_inode_log(struct super_block *sb, struct nova_inode *pi,
 	curr = BLOCK_OFF(curr_p);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr, 1);
+			sb, curr);
 
 	// link current page next to new pages
 	nova_memunlock_block(sb, curr_page, &irq_flags);
@@ -1480,7 +1477,7 @@ static u64 nova_extend_inode_log(struct super_block *sb, struct nova_inode *pi,
 			alter_curr = next_log_page(sb, alter_curr);
 
 		alter_curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, alter_curr, 1);
+			nova_get_virt_addr_from_offset(sb, alter_curr);
 		nova_memunlock_block(sb, curr_page, &irq_flags);
 		nova_set_next_page_address(sb, alter_curr_page, alter_new_block,
 					   0);
@@ -1528,7 +1525,7 @@ static u64 nova_append_one_log_page(struct super_block *sb,
 		/* Link prev block and newly allocated head block */
 		curr_block = BLOCK_OFF(curr_p);
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr_block, 1);
+			nova_get_virt_addr_from_offset(sb, curr_block);
 		nova_memunlock_block(sb, curr_page, &irq_flags);
 		nova_set_next_page_address(sb, curr_page, new_block, 1);
 		nova_memlock_block(sb, curr_page, &irq_flags);
@@ -1557,13 +1554,11 @@ u64 nova_get_append_head(struct super_block *sb, struct nova_inode *pi,
 	    (is_last_entry(curr_p, size) && next_log_page(sb, curr_p) == 0)) {
 		if (is_last_entry(curr_p, size)) {
 			nova_memunlock_block(
-				sb,
-				nova_get_virt_addr_from_offset(sb, curr_p, 1),
+				sb, nova_get_virt_addr_from_offset(sb, curr_p),
 				&irq_flags);
 			nova_set_next_page_flag(sb, curr_p);
 			nova_memlock_block(
-				sb,
-				nova_get_virt_addr_from_offset(sb, curr_p, 1),
+				sb, nova_get_virt_addr_from_offset(sb, curr_p),
 				&irq_flags);
 		}
 
@@ -1590,13 +1585,13 @@ u64 nova_get_append_head(struct super_block *sb, struct nova_inode *pi,
 	}
 
 	if (is_last_entry(curr_p, size)) {
-		nova_memunlock_block(
-			sb, nova_get_virt_addr_from_offset(sb, curr_p, 1),
-			&irq_flags);
+		nova_memunlock_block(sb,
+				     nova_get_virt_addr_from_offset(sb, curr_p),
+				     &irq_flags);
 		nova_set_next_page_flag(sb, curr_p);
-		nova_memlock_block(
-			sb, nova_get_virt_addr_from_offset(sb, curr_p, 1),
-			&irq_flags);
+		nova_memlock_block(sb,
+				   nova_get_virt_addr_from_offset(sb, curr_p),
+				   &irq_flags);
 		curr_p = next_log_page(sb, curr_p);
 	}
 
@@ -1670,7 +1665,7 @@ int nova_free_inode_log(struct super_block *sb, struct nova_inode *pi,
 		if (metadata_csum) {
 			alter_pi = (struct nova_inode *)
 				nova_get_virt_addr_from_offset(
-					sb, sih->alter_pi_addr, 1);
+					sb, sih->alter_pi_addr);
 			if (alter_pi) {
 				memcpy_to_pmem_nocache(
 					alter_pi, pi,

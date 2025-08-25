@@ -515,7 +515,7 @@ u64 nova_print_log_entry(struct super_block *sb, u64 curr)
 	size_t size;
 	u8 type;
 
-	addr = (void *)nova_get_virt_addr_from_offset(sb, curr, 1);
+	addr = (void *)nova_get_virt_addr_from_offset(sb, curr);
 	type = nova_get_entry_type(addr);
 	switch (type) {
 	case SET_ATTR:
@@ -573,7 +573,7 @@ void nova_print_curr_log_page(struct super_block *sb, u64 curr)
 	while (start < end && start != 0)
 		start = nova_print_log_entry(sb, start);
 
-	tail = nova_get_virt_addr_from_offset(sb, end, 1);
+	tail = nova_get_virt_addr_from_offset(sb, end);
 	nova_dbg(
 		"Page tail. curr 0x%llx, next page 0x%llx, %u entries, %u invalid\n",
 		start, tail->next_page, tail->num_entries,
@@ -600,7 +600,7 @@ void nova_print_nova_log(struct super_block *sb,
 	while (curr != sih->log_tail) {
 		if ((curr & (PAGE_SIZE - 1)) == LOG_BLOCK_TAIL) {
 			struct nova_inode_page_tail *tail =
-				nova_get_virt_addr_from_offset(sb, curr, 1);
+				nova_get_virt_addr_from_offset(sb, curr);
 			nova_dbg(
 				"Log tail, curr 0x%llx, next page 0x%llx, %u entries, %u invalid\n",
 				curr, tail->next_page, tail->num_entries,
@@ -638,11 +638,11 @@ int nova_get_nova_log_pages(struct super_block *sb,
 	curr = pi->log_head;
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr, 1);
+			sb, curr);
 	while ((next = curr_page->page_tail.next_page) != 0) {
 		curr = next;
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr, 1);
+			nova_get_virt_addr_from_offset(sb, curr);
 		count++;
 	}
 
@@ -667,7 +667,7 @@ void nova_print_nova_log_pages(struct super_block *sb,
 		 sih->log_tail);
 	curr_page =
 		(struct nova_inode_log_page *)nova_get_virt_addr_from_offset(
-			sb, curr, 1);
+			sb, curr);
 	while ((next = curr_page->page_tail.next_page) != 0) {
 		nova_dbg(
 			"Current page 0x%llx, next page 0x%llx, %u entries, %u invalid\n",
@@ -678,7 +678,7 @@ void nova_print_nova_log_pages(struct super_block *sb,
 			used = count;
 		curr = next;
 		curr_page = (struct nova_inode_log_page *)
-			nova_get_virt_addr_from_offset(sb, curr, 1);
+			nova_get_virt_addr_from_offset(sb, curr);
 		count++;
 	}
 	if (sih->log_tail >> PAGE_SHIFT == curr >> PAGE_SHIFT)

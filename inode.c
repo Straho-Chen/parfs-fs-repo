@@ -87,14 +87,14 @@ static int nova_alloc_inode_table(struct super_block *sb,
 		/* Allocate replicate inodes from tail */
 		allocated = nova_new_log_blocks(
 			sb, sih, &blocknr, 1, ALLOC_INIT_ZERO, i,
-			version ? ALLOC_FROM_TAIL : ALLOC_FROM_HEAD);
+			version ? ALLOC_FROM_TAIL : ALLOC_FROM_HEAD, -1);
 
 		nova_dbg_verbose("%s: allocate log @ 0x%lx\n", __func__,
 				 blocknr);
 		if (allocated != 1 || blocknr == 0)
 			return -ENOSPC;
 
-		block = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_2M, 1);
+		block = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_2M);
 		nova_memunlock_range(sb, inode_table, CACHELINE_SIZE,
 				     &irq_flags);
 		inode_table->log_head = block;
@@ -218,8 +218,8 @@ int nova_get_inode_address(struct super_block *sb, u64 ino, int version,
 		if (curr == 0)
 			return -EINVAL;
 
-		curr_addr = (unsigned long)nova_get_virt_addr_from_offset(
-			sb, curr, 1);
+		curr_addr =
+			(unsigned long)nova_get_virt_addr_from_offset(sb, curr);
 		/* Next page pointer in the last 8 bytes of the superpage */
 		curr_addr += nova_inode_blk_size(&sih) - 8;
 		curr = *(u64 *)(curr_addr);
@@ -232,13 +232,14 @@ int nova_get_inode_address(struct super_block *sb, u64 ino, int version,
 
 			allocated = nova_new_log_blocks(
 				sb, &sih, &blocknr, 1, ALLOC_INIT_ZERO, cpuid,
-				version ? ALLOC_FROM_TAIL : ALLOC_FROM_HEAD);
+				version ? ALLOC_FROM_TAIL : ALLOC_FROM_HEAD,
+				-1);
 
 			if (allocated != 1)
 				return allocated;
 
 			curr = nova_get_block_off(sb, blocknr,
-						  NOVA_BLOCK_TYPE_2M, 1);
+						  NOVA_BLOCK_TYPE_2M);
 			nova_memunlock_range(sb, (void *)curr_addr,
 					     CACHELINE_SIZE, &irq_flags);
 			*(u64 *)(curr_addr) = curr;
@@ -501,7 +502,7 @@ static int nova_read_inode(struct super_block *sb, struct inode *inode,
 	unsigned long ino;
 
 	ret = nova_get_reference(sb, pi_addr, &fake_pi, (void **)&pi,
-				 sizeof(struct nova_inode), 1);
+				 sizeof(struct nova_inode));
 	if (ret) {
 		nova_dbg("%s: read pi @ 0x%llx failed\n", __func__, pi_addr);
 		goto bad_inode;
@@ -831,7 +832,7 @@ unsigned long nova_get_last_blocknr(struct super_block *sb,
 	int ret;
 
 	ret = nova_get_reference(sb, sih->pi_addr, &fake_pi, (void **)&pi,
-				 sizeof(struct nova_inode), 1);
+				 sizeof(struct nova_inode));
 	if (ret) {
 		nova_dbg("%s: read pi @ 0x%lx failed\n", __func__,
 			 sih->pi_addr);
@@ -871,7 +872,7 @@ static int nova_free_inode_resource(struct super_block *sb,
 	nova_update_inode_checksum(pi, 1);
 	if (metadata_csum && sih->alter_pi_addr) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, sih->alter_pi_addr, 1);
+			sb, sih->alter_pi_addr);
 		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 	nova_memlock_inode(sb, pi, &irq_flags);
@@ -1007,8 +1008,7 @@ int nova_delete_dead_inode(struct super_block *sb, u64 ino)
 	if (err)
 		return err;
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
-								 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
 	sih = &si.header;
 
 	nova_dbg_verbose(
@@ -1106,8 +1106,7 @@ struct inode *nova_new_vfs_inode(struct mnt_idmap *idmap,
 			goto fail1;
 	}
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
-								 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
 	nova_dbg_verbose("%s: allocating inode %llu @ 0x%llx\n", __func__, ino,
 			 pi_addr);
 
@@ -1156,7 +1155,7 @@ struct inode *nova_new_vfs_inode(struct mnt_idmap *idmap,
 
 	if (metadata_csum) {
 		alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-			sb, alter_pi_addr, 1);
+			sb, alter_pi_addr);
 		memcpy_to_pmem_nocache(alter_pi, pi, sizeof(struct nova_inode));
 	}
 
@@ -1217,7 +1216,7 @@ void nova_dirty_inode(struct inode *inode, int _flags)
 	if (sbi->mount_snapshot)
 		return;
 
-	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
+	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr);
 
 	/* check the inode before updating to make sure all fields are good */
 	if (nova_check_inode_integrity(sb, sih->ino, sih->pi_addr,

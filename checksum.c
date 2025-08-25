@@ -224,14 +224,14 @@ int nova_update_alter_entry(struct super_block *sb, void *entry)
 	if (metadata_csum == 0)
 		return 0;
 
-	curr = nova_get_addr_off(sbi, entry, 1);
+	curr = nova_get_addr_off(sbi, entry);
 	alter_curr = alter_log_entry(sb, curr);
 
 	if (alter_curr == 0) {
 		nova_err(sb, "%s: log page tail error detected\n", __func__);
 		return -EIO;
 	}
-	alter_entry = (void *)nova_get_virt_addr_from_offset(sb, alter_curr, 1);
+	alter_entry = (void *)nova_get_virt_addr_from_offset(sb, alter_curr);
 
 	ret = get_entry_copy(sb, entry, &entry_csum, &size, entry_copy);
 	if (ret)
@@ -250,7 +250,7 @@ static int nova_repair_entry_pr(struct super_block *sb, void *entry)
 	void *entry_pr, *alter_pr;
 	unsigned long irq_flags = 0;
 
-	entry_off = nova_get_addr_off(sbi, entry, 1);
+	entry_off = nova_get_addr_off(sbi, entry);
 	alter_off = alter_log_entry(sb, entry_off);
 	if (alter_off == 0) {
 		nova_err(sb, "%s: log page tail error detected\n", __func__);
@@ -258,9 +258,9 @@ static int nova_repair_entry_pr(struct super_block *sb, void *entry)
 	}
 
 	entry_pr = (void *)nova_get_virt_addr_from_offset(
-		sb, entry_off & POISON_MASK, 1);
+		sb, entry_off & POISON_MASK);
 	alter_pr = (void *)nova_get_virt_addr_from_offset(
-		sb, alter_off & POISON_MASK, 1);
+		sb, alter_off & POISON_MASK);
 
 	if (entry_pr == NULL || alter_pr == NULL)
 		BUG();
@@ -365,14 +365,14 @@ bool nova_verify_entry_csum(struct super_block *sb, void *entry, void *entryc)
 			goto fail;
 	}
 
-	entry_off = nova_get_addr_off(sbi, entry, 1);
+	entry_off = nova_get_addr_off(sbi, entry);
 	alter_off = alter_log_entry(sb, entry_off);
 	if (alter_off == 0) {
 		nova_err(sb, "%s: log page tail error detected\n", __func__);
 		goto fail;
 	}
 
-	alter = (void *)nova_get_virt_addr_from_offset(sb, alter_off, 1);
+	alter = (void *)nova_get_virt_addr_from_offset(sb, alter_off);
 	ret = get_entry_copy(sb, alter, &alter_csum, &alter_size, alter_copy);
 	if (ret < 0) { /* media error */
 		nova_dbg_verbose("%s: get_entry_copy failed: %d\n", __func__,
@@ -504,8 +504,7 @@ int nova_copy_inode(struct super_block *sb, u64 ino, u64 pi_addr,
 	struct nova_inode *pi, *alter_pi;
 	int ret;
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
-								 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
 
 	ret = memcpy_mcsafe(pic, pi, sizeof(struct nova_inode));
 
@@ -513,7 +512,7 @@ int nova_copy_inode(struct super_block *sb, u64 ino, u64 pi_addr,
 		return ret;
 
 	alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-		sb, alter_pi_addr, 1);
+		sb, alter_pi_addr);
 
 	if (ret < 0) { /* media error */
 		ret = nova_repair_inode_pr(sb, pi, alter_pi);
@@ -547,8 +546,7 @@ int nova_check_inode_integrity(struct super_block *sb, u64 ino, u64 pi_addr,
 	int inode_bad, alter_bad;
 	int ret;
 
-	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr,
-								 1);
+	pi = (struct nova_inode *)nova_get_virt_addr_from_offset(sb, pi_addr);
 
 	ret = memcpy_mcsafe(pic, pi, sizeof(struct nova_inode));
 
@@ -556,7 +554,7 @@ int nova_check_inode_integrity(struct super_block *sb, u64 ino, u64 pi_addr,
 		return ret;
 
 	alter_pi = (struct nova_inode *)nova_get_virt_addr_from_offset(
-		sb, alter_pi_addr, 1);
+		sb, alter_pi_addr);
 
 	if (ret < 0) { /* media error */
 		ret = nova_repair_inode_pr(sb, pi, alter_pi);
@@ -678,7 +676,7 @@ static int nova_stripe_csum_crc(struct super_block *sb, unsigned long strps,
 
 		src_addr = crc;
 copy:
-		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+		csum_addr = nova_get_data_csum_addr(sb, blocknr);
 
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN * 8,
 				     &irq_flags);
@@ -713,7 +711,7 @@ copy:
 	nova_dbg_verbose("%s: last blocknr: %lx, last strps: %lu\n", __func__,
 			 blocknr, strps);
 	if (strps) {
-		csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+		csum_addr = nova_get_data_csum_addr(sb, blocknr);
 		for (strp = 0; strp < strps; strp++) {
 			if (zero)
 				csum = sbi->zero_csum[0];
@@ -769,7 +767,7 @@ static int nova_stripe_csum_xxhash(struct super_block *sb, unsigned long strps,
 
 		src_addr = &csum;
 copy:
-		csum_addr = nova_get_data_csum_addr(sb, blocknr + strp, 0);
+		csum_addr = nova_get_data_csum_addr(sb, blocknr + strp);
 
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN,
 				     &irq_flags);
@@ -816,7 +814,7 @@ int nova_update_pgoff_csum(struct super_block *sb,
 	blocknr = get_nvmm(sb, sih, entry, pgoff);
 
 	dax_mem = nova_get_virt_addr_from_offset(
-		sb, nova_get_block_off(sb, blocknr, sih->i_blk_type, 0), 0);
+		sb, nova_get_block_off(sb, blocknr, sih->i_blk_type));
 
 	nova_dbg_verbose("%s: find block: %#llx\n", __func__, blocknr);
 
@@ -864,8 +862,8 @@ bool nova_verify_data_csum(struct super_block *sb,
 
 	for (block = 0; block < blocks; block++) {
 		blockoff = nova_get_block_off(sb, blocknr + block,
-					      sih->i_blk_type, 0);
-		blockptr = nova_get_virt_addr_from_offset(sb, blockoff, 0);
+					      sih->i_blk_type);
+		blockptr = nova_get_virt_addr_from_offset(sb, blockoff);
 
 		strip = kmalloc(strp_size, GFP_KERNEL);
 		if (strip == NULL) {
@@ -876,7 +874,7 @@ bool nova_verify_data_csum(struct super_block *sb,
 
 		match = true;
 		for (strp = 0; strp < strps_per_block; strp++) {
-			csum_addr = nova_get_data_csum_addr(sb, blocknr, 0) +
+			csum_addr = nova_get_data_csum_addr(sb, blocknr) +
 				    strp * NOVA_DATA_CSUM_LEN;
 			csum_nvmm = le32_to_cpu(*csum_addr);
 
@@ -945,7 +943,7 @@ int nova_update_truncated_block_csum(struct super_block *sb,
 	pgoff = newsize >> nova_inode_blk_shift(sih);
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
-	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
+	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm);
 	blocknr = nova_get_blocknr(sb, nvmm, sih->i_blk_type);
 
 	nova_dbg_verbose("%s: nvmm: %#llx, nvmm_addr: %#llx, blocknr: %#lx\n",

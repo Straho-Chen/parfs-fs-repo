@@ -196,8 +196,7 @@ static void nova_destroy_blocknode_tree(struct super_block *sb, int cpu)
 	struct free_list *free_list;
 
 	free_list = nova_get_free_list(sb, cpu);
-	nova_destroy_range_node_tree(sb, &free_list->data_list.block_free_tree);
-	nova_destroy_range_node_tree(sb, &free_list->meta_list.block_free_tree);
+	nova_destroy_range_node_tree(sb, &free_list->block_free_tree);
 }
 
 static void nova_destroy_blocknode_trees(struct super_block *sb)
@@ -215,7 +214,7 @@ static int _loop_resolve_blockmap_entry(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_range_node_lowhigh *entry;
 	struct nova_range_node *blknode;
-	struct sub_free_list *sub_free_list;
+	struct free_list *free_list;
 	size_t size = sizeof(struct nova_range_node_lowhigh);
 	u64 curr_p;
 	int cpuid;
@@ -240,7 +239,7 @@ static int _loop_resolve_blockmap_entry(struct super_block *sb,
 		}
 
 		entry = (struct nova_range_node_lowhigh *)
-			nova_get_virt_addr_from_offset(sb, curr_p, 1);
+			nova_get_virt_addr_from_offset(sb, curr_p);
 		blknode = nova_alloc_blocknode(sb);
 		if (blknode == NULL)
 			NOVA_ASSERT(0);
@@ -254,19 +253,11 @@ static int _loop_resolve_blockmap_entry(struct super_block *sb,
 				 dram_struct_csum);
 
 		/* FIXME: Assume NR_CPUS not change */
-		if (sih->ino == NOVA_DATA_BLOCKNODE_INO) {
-			cpuid = nova_block_to_cpu(sbi, blknode->range_low, 0);
-			sub_free_list = nova_get_sub_free_list(sb, cpuid, 0);
-			nova_dbg_verbose("%s: get data free list %d\n",
-					 __func__, cpuid);
-		} else {
-			cpuid = nova_block_to_cpu(sbi, blknode->range_low, 1);
-			sub_free_list = nova_get_sub_free_list(sb, cpuid, 1);
-			nova_dbg_verbose("%s: get meta free list %d\n",
-					 __func__, cpuid);
-		}
+		cpuid = nova_block_to_cpu(sbi, blknode->range_low);
+		free_list = nova_get_free_list(sb, cpuid);
+		nova_dbg_verbose("%s: get free list %d\n", __func__, cpuid);
 
-		ret = nova_insert_blocktree(&sub_free_list->block_free_tree,
+		ret = nova_insert_blocktree(&free_list->block_free_tree,
 					    blknode);
 		if (ret) {
 			nova_err(sb, "%s failed\n", __func__);
@@ -275,11 +266,11 @@ static int _loop_resolve_blockmap_entry(struct super_block *sb,
 			nova_destroy_blocknode_trees(sb);
 			goto out;
 		}
-		sub_free_list->num_blocknode++;
-		if (sub_free_list->num_blocknode == 1)
-			sub_free_list->first_node = blknode;
-		sub_free_list->last_node = blknode;
-		sub_free_list->num_free_blocks +=
+		free_list->num_blocknode++;
+		if (free_list->num_blocknode == 1)
+			free_list->first_node = blknode;
+		free_list->last_node = blknode;
+		free_list->num_free_blocks +=
 			blknode->range_high - blknode->range_low + 1;
 		curr_p += sizeof(struct nova_range_node_lowhigh);
 	}
@@ -296,27 +287,17 @@ static int nova_init_blockmap_from_inode(struct super_block *sb)
 	memset(&sih, 0, sizeof(struct nova_inode_info_header));
 
 	/* FIXME: Backup inode for BLOCKNODE */
-	pi = nova_get_inode_by_ino(sb, NOVA_DATA_BLOCKNODE_INO);
+	pi = nova_get_inode_by_ino(sb, NOVA_BLOCKNODE_INO);
 	ret = nova_get_head_tail(sb, pi, &sih);
 	if (ret)
 		goto out;
-	sih.ino = NOVA_DATA_BLOCKNODE_INO;
+	sih.ino = NOVA_BLOCKNODE_INO;
 	if (_loop_resolve_blockmap_entry(sb, &sih)) {
 		nova_err(sb, "Failed to resolve blockmap entry\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
-	pi = nova_get_inode_by_ino(sb, NOVA_META_BLOCKNODE_INO);
-	ret = nova_get_head_tail(sb, pi, &sih);
-	if (ret)
-		goto out;
-	sih.ino = NOVA_META_BLOCKNODE_INO;
-	if (_loop_resolve_blockmap_entry(sb, &sih)) {
-		nova_err(sb, "Failed to resolve blockmap entry\n");
-		ret = -EINVAL;
-		goto out;
-	}
 out:
 	nova_free_inode_log(sb, pi, &sih);
 	return ret;
@@ -373,7 +354,7 @@ static int nova_init_inode_list_from_inode(struct super_block *sb)
 		}
 
 		entry = (struct nova_range_node_lowhigh *)
-			nova_get_virt_addr_from_offset(sb, curr_p, 1);
+			nova_get_virt_addr_from_offset(sb, curr_p);
 		range_node = nova_alloc_inode_node(sb);
 		if (range_node == NULL)
 			NOVA_ASSERT(0);
@@ -443,7 +424,7 @@ static u64 nova_append_range_node_entry(struct super_block *sb,
 		curr_p = next_log_page(sb, curr_p);
 
 	entry = (struct nova_range_node_lowhigh *)
-		nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		nova_get_virt_addr_from_offset(sb, curr_p);
 	nova_memunlock_range(sb, entry, size, &irq_flags);
 	entry->range_low = cpu_to_le64(curr->range_low);
 	if (cpuid)
@@ -483,14 +464,14 @@ static u64 nova_save_range_nodes_to_log(struct super_block *sb,
 }
 
 static u64 nova_save_free_list_blocknodes(struct super_block *sb, int cpu,
-					  u64 temp_tail, int meta)
+					  u64 temp_tail)
 {
-	struct sub_free_list *sub_free_list;
+	struct free_list *free_list;
 
-	sub_free_list = nova_get_sub_free_list(sb, cpu, meta);
+	free_list = nova_get_free_list(sb, cpu);
 
 	temp_tail = nova_save_range_nodes_to_log(
-		sb, &sub_free_list->block_free_tree, temp_tail, 0);
+		sb, &free_list->block_free_tree, temp_tail, 0);
 	return temp_tail;
 }
 
@@ -547,11 +528,11 @@ void nova_save_inode_list_to_log(struct super_block *sb)
 }
 
 void _nova_save_blocknode_mappings_to_log(struct super_block *sb,
-					  struct nova_inode *pi, int meta)
+					  struct nova_inode *pi)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_inode_info_header sih;
-	struct sub_free_list *sub_free_list;
+	struct free_list *free_list;
 	unsigned long num_blocknode = 0;
 	unsigned long num_pages;
 	int allocated;
@@ -560,19 +541,16 @@ void _nova_save_blocknode_mappings_to_log(struct super_block *sb,
 	int i;
 	unsigned long irq_flags = 0;
 
-	if (meta)
-		sih.ino = NOVA_META_BLOCKNODE_INO;
-	else
-		sih.ino = NOVA_DATA_BLOCKNODE_INO;
+	sih.ino = NOVA_BLOCKNODE_INO;
 
 	sih.i_blk_type = NOVA_DEFAULT_BLOCK_TYPE;
 
 	/* Allocate log pages before save blocknode mappings */
 	for (i = 0; i < sbi->cpus; i++) {
-		sub_free_list = nova_get_sub_free_list(sb, i, meta);
-		num_blocknode += sub_free_list->num_blocknode;
+		free_list = nova_get_free_list(sb, i);
+		num_blocknode += free_list->num_blocknode;
 		nova_dbg_verbose("%s: free list %d: %#lx nodes\n", __func__, i,
-				 sub_free_list->num_blocknode);
+				 free_list->num_blocknode);
 	}
 
 	num_pages = num_blocknode / RANGENODE_PER_PAGE;
@@ -588,8 +566,7 @@ void _nova_save_blocknode_mappings_to_log(struct super_block *sb,
 
 	temp_tail = new_block;
 	for (i = 0; i < sbi->cpus; i++)
-		temp_tail =
-			nova_save_free_list_blocknodes(sb, i, temp_tail, meta);
+		temp_tail = nova_save_free_list_blocknodes(sb, i, temp_tail);
 
 	/* Finally update log head and tail */
 	nova_memunlock_inode(sb, pi, &irq_flags);
@@ -600,25 +577,21 @@ void _nova_save_blocknode_mappings_to_log(struct super_block *sb,
 	nova_memlock_inode(sb, pi, &irq_flags);
 
 	nova_dbg_verbose(
-		"%s: %s %#lx blocknodes, %#lx log pages, pi head 0x%llx, tail 0x%llx\n",
-		__func__, (meta ? "meta" : "data"), num_blocknode, num_pages,
-		pi->log_head, pi->log_tail);
+		"%s: %#lx blocknodes, %#lx log pages, pi head 0x%llx, tail 0x%llx\n",
+		__func__, num_blocknode, num_pages, pi->log_head, pi->log_tail);
 }
 
 void nova_save_blocknode_mappings_to_log(struct super_block *sb)
 {
 	struct nova_inode *pi;
-	pi = nova_get_inode_by_ino(sb, NOVA_DATA_BLOCKNODE_INO);
-	_nova_save_blocknode_mappings_to_log(sb, pi, 0);
-	pi = nova_get_inode_by_ino(sb, NOVA_META_BLOCKNODE_INO);
-	_nova_save_blocknode_mappings_to_log(sb, pi, 1);
+	pi = nova_get_inode_by_ino(sb, NOVA_BLOCKNODE_INO);
+	_nova_save_blocknode_mappings_to_log(sb, pi);
 }
 
 static int nova_insert_blocknode_map(struct super_block *sb, int cpuid,
-				     int meta, unsigned long low,
-				     unsigned long high)
+				     unsigned long low, unsigned long high)
 {
-	struct sub_free_list *sub_free_list;
+	struct free_list *free_list;
 	struct rb_root *tree;
 	struct nova_range_node *blknode = NULL;
 	unsigned long num_blocks = 0;
@@ -627,9 +600,9 @@ static int nova_insert_blocknode_map(struct super_block *sb, int cpuid,
 	num_blocks = high - low + 1;
 	nova_dbg_verbose("%s: cpu %d, low %#lx, high %#lx, num %#lx\n",
 			 __func__, cpuid, low, high, num_blocks);
-	sub_free_list = nova_get_sub_free_list(sb, cpuid, meta);
+	free_list = nova_get_free_list(sb, cpuid);
 
-	tree = &(sub_free_list->block_free_tree);
+	tree = &(free_list->block_free_tree);
 
 	blknode = nova_alloc_blocknode(sb);
 	if (blknode == NULL)
@@ -643,31 +616,30 @@ static int nova_insert_blocknode_map(struct super_block *sb, int cpuid,
 		nova_free_blocknode(blknode);
 		goto out;
 	}
-	if (!sub_free_list->first_node)
-		sub_free_list->first_node = blknode;
-	sub_free_list->last_node = blknode;
-	sub_free_list->num_blocknode++;
-	sub_free_list->num_free_blocks += num_blocks;
+	if (!free_list->first_node)
+		free_list->first_node = blknode;
+	free_list->last_node = blknode;
+	free_list->num_blocknode++;
+	free_list->num_free_blocks += num_blocks;
 out:
 	return ret;
 }
 
 static int __nova_build_blocknode_map(struct super_block *sb,
 				      unsigned long *bitmap,
-				      unsigned long bsize, unsigned long scale,
-				      int meta)
+				      unsigned long bsize, unsigned long scale)
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
-	struct sub_free_list *sub_free_list;
+	struct free_list *free_list;
 	unsigned long next = 0;
 	unsigned long low = 0;
 	unsigned long start, end;
 	int cpuid = 0;
 
-	sub_free_list = nova_get_sub_free_list(sb, cpuid, meta);
+	free_list = nova_get_free_list(sb, cpuid);
 
-	start = sub_free_list->block_start;
-	end = sub_free_list->block_end + 1;
+	start = free_list->block_start;
+	end = free_list->block_end + 1;
 	while (1) {
 		next = find_next_zero_bit(bitmap, end, start);
 		if (next == bsize)
@@ -677,16 +649,16 @@ static int __nova_build_blocknode_map(struct super_block *sb,
 				break;
 
 			cpuid++;
-			sub_free_list = nova_get_sub_free_list(sb, cpuid, meta);
+			free_list = nova_get_free_list(sb, cpuid);
 
-			start = sub_free_list->block_start;
-			end = sub_free_list->block_end + 1;
+			start = free_list->block_start;
+			end = free_list->block_end + 1;
 			continue;
 		}
 
 		low = next;
 		next = find_next_bit(bitmap, end, next);
-		if (nova_insert_blocknode_map(sb, cpuid, meta, low << scale,
+		if (nova_insert_blocknode_map(sb, cpuid, low << scale,
 					      (next << scale) - 1)) {
 			nova_dbg("Error: could not insert %#lx - %#lx\n",
 				 low << scale, ((next << scale) - 1));
@@ -699,10 +671,10 @@ static int __nova_build_blocknode_map(struct super_block *sb,
 				break;
 
 			cpuid++;
-			sub_free_list = nova_get_sub_free_list(sb, cpuid, meta);
+			free_list = nova_get_free_list(sb, cpuid);
 
-			start = sub_free_list->block_start;
-			end = sub_free_list->block_end + 1;
+			start = free_list->block_start;
+			end = free_list->block_end + 1;
 		}
 	}
 	return 0;
@@ -787,11 +759,7 @@ static int nova_build_blocknode_map(struct super_block *sb,
 
 	ret = __nova_build_blocknode_map(sb, final_bm->scan_bm_4K.bitmap,
 					 final_bm->scan_bm_4K.bitmap_size * 8,
-					 PAGE_SHIFT - 12, 0);
-
-	ret = __nova_build_blocknode_map(sb, final_bm->scan_bm_4K.bitmap,
-					 final_bm->scan_bm_4K.bitmap_size * 8,
-					 PAGE_SHIFT - 12, 1);
+					 PAGE_SHIFT - 12);
 
 	kvfree(final_bm->scan_bm_4K.bitmap);
 	kfree(final_bm);
@@ -1229,7 +1197,7 @@ again:
 			BUG();
 		}
 
-		entry = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		entry = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 
 		if (metadata_csum == 0)
 			entryc = entry;
@@ -1277,18 +1245,19 @@ again:
 	}
 
 	if (sih->ckpt_id != sih->trans_id) {
-		nova_dbg_verbose("%s: check latest trans: %llu\n", __func__, sih->trans_id);
+		nova_dbg_verbose("%s: check latest trans: %llu\n", __func__,
+				 sih->trans_id);
 		// check last trans data blocks
 		u64 tmp = trans_curr;
 		bool invalid = false;
 		loop_end = false;
-		nova_dbg_verbose("%s: trans_curr: %#llx, curr: %#llx\n", __func__, trans_curr, curr_p);
+		nova_dbg_verbose("%s: trans_curr: %#llx, curr: %#llx\n",
+				 __func__, trans_curr, curr_p);
 		while (tmp != curr_p) {
 			if (goto_next_page(sb, tmp)) {
 				tmp = next_log_page(sb, tmp);
 			}
-			entry = (void *)nova_get_virt_addr_from_offset(sb, tmp,
-								       1);
+			entry = (void *)nova_get_virt_addr_from_offset(sb, tmp);
 			type = nova_get_entry_type(entry);
 			switch (type) {
 			case SET_ATTR:
@@ -1333,7 +1302,7 @@ again:
 					tmp = next_log_page(sb, tmp);
 				}
 				entry = (void *)nova_get_virt_addr_from_offset(
-					sb, tmp, 1);
+					sb, tmp);
 				type = nova_get_entry_type(entry);
 
 				switch (type) {
@@ -1578,7 +1547,7 @@ static int failure_thread_func(void *data)
 			pi_addr = curr + i * NOVA_INODE_SIZE;
 			ret = nova_get_reference(sb, pi_addr, &fake_pi,
 						 (void **)&pi,
-						 sizeof(struct nova_inode), 1);
+						 sizeof(struct nova_inode));
 			if (ret) {
 				nova_dbg("Recover pi @ 0x%llx failed\n",
 					 pi_addr);
@@ -1671,8 +1640,8 @@ static int nova_failure_recovery_crawl(struct super_block *sb)
 				count++;
 
 				curr_addr = (unsigned long)
-					nova_get_virt_addr_from_offset(sb, curr,
-								       1);
+					nova_get_virt_addr_from_offset(sb,
+								       curr);
 				/* Next page resides at the last 8 bytes */
 				curr_addr += 2097152 - 8;
 				curr = *(u64 *)(curr_addr);
@@ -1689,7 +1658,7 @@ static int nova_failure_recovery_crawl(struct super_block *sb)
 	nova_init_header(sb, &sih, 0);
 	/* Recover the root iode */
 	ret = nova_get_reference(sb, root_addr, &fake_pi, (void **)&pi,
-				 sizeof(struct nova_inode), 1);
+				 sizeof(struct nova_inode));
 	if (ret) {
 		nova_dbg("Recover root pi failed\n");
 		return ret;
@@ -1717,11 +1686,7 @@ int nova_failure_recovery(struct super_block *sb)
 		return -EINVAL;
 
 	/* Handle special inodes */
-	pi = nova_get_inode_by_ino(sb, NOVA_DATA_BLOCKNODE_INO);
-	pi->log_head = pi->log_tail = 0;
-	nova_flush_buffer(&pi->log_head, CACHELINE_SIZE, 0);
-
-	pi = nova_get_inode_by_ino(sb, NOVA_META_BLOCKNODE_INO);
+	pi = nova_get_inode_by_ino(sb, NOVA_BLOCKNODE_INO);
 	pi->log_head = pi->log_tail = 0;
 	nova_flush_buffer(&pi->log_head, CACHELINE_SIZE, 0);
 
@@ -1767,11 +1732,7 @@ static bool nova_try_normal_recovery(struct super_block *sb)
 	struct nova_inode *pi;
 	int ret;
 
-	pi = nova_get_inode_by_ino(sb, NOVA_META_BLOCKNODE_INO);
-	if (pi->log_head == 0 || pi->log_tail == 0)
-		return false;
-
-	pi = nova_get_inode_by_ino(sb, NOVA_DATA_BLOCKNODE_INO);
+	pi = nova_get_inode_by_ino(sb, NOVA_BLOCKNODE_INO);
 	if (pi->log_head == 0 || pi->log_tail == 0)
 		return false;
 
@@ -1817,8 +1778,6 @@ int nova_recovery(struct super_block *sb)
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 	struct nova_super_block *super = sbi->nova_sb;
 	unsigned long initsize = le64_to_cpu(super->s_size);
-	unsigned long meta_size = le64_to_cpu(super->s_meta_size);
-	unsigned long data_size = le64_to_cpu(super->s_data_size);
 	bool value = false;
 	int ret = 0;
 	INIT_TIMING(start);
@@ -1831,10 +1790,7 @@ int nova_recovery(struct super_block *sb)
 		ktime_get_ts64(&start);
 
 	NOVA_START_TIMING(recovery_t, start);
-	nova_dbg_verbose("%s: meta size: %#lx, data size: %#lx\n", __func__,
-			 meta_size, data_size);
-	sbi->meta_num_blocks = ((unsigned long)(meta_size) >> PAGE_SHIFT);
-	sbi->data_num_blocks = ((unsigned long)(data_size) >> PAGE_SHIFT);
+	sbi->num_blocks = ((unsigned long)(initsize) >> PAGE_SHIFT);
 
 	/* initialize free list info */
 	nova_init_blockmap(sb, 1);

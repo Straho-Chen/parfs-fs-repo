@@ -46,10 +46,10 @@ static inline int nova_handle_partial_block(
 	if (entry == NULL) {
 		/* Fill zero */
 		nova_dbg_verbose("%s: entry is null, fill 0\n", __func__);
-		left = do_nova_nvmm_write(sb, kmem + offset, NULL, len, 0,
-					  socket, 1, support_clwb, 0,
-					  issued_cnt, completed_cnt, 0,
-					  try_do_dele, is_dele);
+		left = do_nova_nvmm_write(sb, kmem + offset, NULL, len, socket,
+					  1, support_clwb, 0, issued_cnt,
+					  completed_cnt, 0, try_do_dele,
+					  is_dele);
 		if (left) {
 			nova_dbg_verbose("%s: fill zero block left: %ld\n",
 					 __func__, left);
@@ -78,16 +78,15 @@ static inline int nova_handle_partial_block(
 
 		nvmm = get_nvmm(sb, sih, entry, index);
 		ptr = nova_get_virt_addr_from_offset(
-			sb, nova_get_block_off(sb, nvmm, sih->i_blk_type, 0),
-			0);
+			sb, nova_get_block_off(sb, nvmm, sih->i_blk_type));
 
 		if (ptr != NULL) {
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			left = do_nova_nvmm_write(sb, kmem + offset,
-						  ptr + offset, len, 0, socket,
-						  0, support_clwb, 0,
-						  issued_cnt, completed_cnt, 0,
-						  try_do_dele, is_dele);
+						  ptr + offset, len, socket, 0,
+						  support_clwb, 0, issued_cnt,
+						  completed_cnt, 0, try_do_dele,
+						  is_dele);
 #else
 			unsigned long irq_flags = 0;
 			INIT_TIMING(memcpy_time);
@@ -163,9 +162,9 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		nova_dbg_verbose("%s: head blocknr: %#lx\n", __func__, blocknr);
 		kmem = nova_get_virt_addr_from_offset(
 			inode->i_sb,
-			nova_get_block_off(sb, blocknr, sih->i_blk_type, 0), 0);
+			nova_get_block_off(sb, blocknr, sih->i_blk_type));
 		socket = nova_block_to_socket(NOVA_SB(sb), blocknr,
-					      sih->i_blk_type, 0);
+					      sih->i_blk_type);
 		if (!append) {
 			/* copy [start, offset] from old block(or fill 0) to new cow block */
 			entry = nova_get_write_entry(sb, sih, start_blk);
@@ -189,9 +188,9 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		}
 		ret = do_nova_nvmm_write(sb, kmem + offset,
 					 (void *)(ubuf_copy + ubuf_off), bytes,
-					 0, socket, 0, support_clwb, 0,
-					 issued_cnt, completed_cnt, 0,
-					 try_do_dele, &inner_is_dele);
+					 socket, 0, support_clwb, 0, issued_cnt,
+					 completed_cnt, 0, try_do_dele,
+					 &inner_is_dele);
 		if (ret < 0)
 			return ret;
 
@@ -208,10 +207,10 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		nova_dbg_verbose("%s: tail blocknr: %#lx\n", __func__, blocknr);
 		kmem = nova_get_virt_addr_from_offset(
 			inode->i_sb,
-			nova_get_block_off(sb, blocknr, sih->i_blk_type, 0), 0);
+			nova_get_block_off(sb, blocknr, sih->i_blk_type));
 		ubuf_off = count - eblk_offset;
 		socket = nova_block_to_socket(NOVA_SB(sb), blocknr,
-					      sih->i_blk_type, 0);
+					      sih->i_blk_type);
 		if (!head_eq_tail || !(*head)) {
 			// we have already copy user buffer when head = tail and offset != 0
 			nova_dbg_verbose("%s: copy tail user buffer\n",
@@ -219,7 +218,7 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 			nova_dbg_verbose("%s: ubuf_off: %lu\n", __func__,
 					 ubuf_off);
 			ret = do_nova_nvmm_write(sb, kmem, ubuf_copy + ubuf_off,
-						 eblk_offset, 0, socket, 0,
+						 eblk_offset, socket, 0,
 						 support_clwb, 0, issued_cnt,
 						 completed_cnt, 0, try_do_dele,
 						 &inner_is_dele);
@@ -270,7 +269,7 @@ int nova_reassign_file_tree(struct super_block *sb,
 			return -EINVAL;
 		}
 
-		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 		entry = (struct nova_file_write_entry *)addr;
 
 		if (metadata_csum == 0)
@@ -332,7 +331,7 @@ int nova_cleanup_incomplete_write(struct super_block *sb,
 			return -EINVAL;
 		}
 
-		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+		addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 		entry = (struct nova_file_write_entry *)addr;
 
 		if (metadata_csum == 0)
@@ -485,10 +484,9 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 
 			/* make sure data in the partial block head is good */
 			nvmm = get_nvmm(sb, sih, entryc, start_blk);
-			nvmmoff = nova_get_block_off(sb, nvmm, sih->i_blk_type,
-						     0);
+			nvmmoff = nova_get_block_off(sb, nvmm, sih->i_blk_type);
 			blockptr = (u8 *)nova_get_virt_addr_from_offset(
-				sb, nvmmoff, 0);
+				sb, nvmmoff);
 
 			/* load data from nvmm to blockbuf */
 			nova_dbg_verbose("%s: copy head from nvm %lu\n",
@@ -595,10 +593,9 @@ eblk:
 
 			/* make sure data in the partial block tail is good */
 			nvmm = get_nvmm(sb, sih, entryc, end_blk);
-			nvmmoff = nova_get_block_off(sb, nvmm, sih->i_blk_type,
-						     0);
+			nvmmoff = nova_get_block_off(sb, nvmm, sih->i_blk_type);
 			blockptr = (u8 *)nova_get_virt_addr_from_offset(
-				sb, nvmmoff, 0);
+				sb, nvmmoff);
 
 			nova_dbg_verbose("%s: copy tail from nvm %lu\n",
 					 __func__, blocksize - eblk_offset);
@@ -790,12 +787,12 @@ void check_alter_pages(struct super_block *sb, u64 curr_p)
 {
 	if (curr_p == 0)
 		return;
-	void *addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p, 1);
+	void *addr = (void *)nova_get_virt_addr_from_offset(sb, curr_p);
 	struct nova_file_write_entry *entry =
 		(struct nova_file_write_entry *)addr;
-	u64 entry_off = nova_get_addr_off(NOVA_SB(sb), entry, 1);
+	u64 entry_off = nova_get_addr_off(NOVA_SB(sb), entry);
 	u64 alter_off = alter_log_entry(sb, entry_off);
-	void *alter = (void *)nova_get_virt_addr_from_offset(sb, alter_off, 1);
+	void *alter = (void *)nova_get_virt_addr_from_offset(sb, alter_off);
 	nova_dbg("%s: entry_off: %#llx, alter_off: %#llx, alter: %#llx\n",
 		 __func__, entry_off, alter_off, (u64)alter);
 	if (pmem_ar_addr_invaild(alter)) {
@@ -814,7 +811,7 @@ static int nova_partial_csum_crc32(struct super_block *sb,
 
 	csum = nova_crc32c(NOVA_INIT_CSUM, block, size);
 
-	csum_addr = nova_get_data_csum_addr(sb, blocknr, 0);
+	csum_addr = nova_get_data_csum_addr(sb, blocknr);
 
 	nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN, &irq_flags);
 	memcpy(csum_addr, &csum, NOVA_DATA_CSUM_LEN);
@@ -924,7 +921,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 
 	count = len;
 
-	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
+	pi = nova_get_virt_addr_from_offset(sb, sih->pi_addr);
 
 /* nova_inode tail pointer will be updated and we make sure all other
 	 * inode fields are good before checksumming the whole structure
@@ -1004,7 +1001,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			allocated = nova_new_data_blocks(sb, sih, &blocknr,
 							 start_blk, num_blocks,
 							 ALLOC_NO_INIT, ANY_CPU,
-							 ALLOC_FROM_HEAD);
+							 ALLOC_FROM_HEAD, -1);
 			nova_dbg_verbose("%s: alloc %d blocks @ %#lx\n",
 					 __func__, allocated, blocknr);
 
@@ -1078,27 +1075,26 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = 0;
 
-		if (sbi->data_nvm_num == 1) {
+		if (sbi->sockets == 1) {
 			kmem = nova_get_virt_addr_from_offset(
 				inode->i_sb,
-				nova_get_block_off(sb, blocknr, sih->i_blk_type,
-						   0),
-				0);
+				nova_get_block_off(sb, blocknr,
+						   sih->i_blk_type));
 			socket = nova_block_to_socket(sbi, blocknr,
-						      sih->i_blk_type, 0);
+						      sih->i_blk_type);
 
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			copied += do_nova_nvmm_write(
 				sb, kmem, (void *)(ubuf_copy + head),
-				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
-				1, 0, issued_cnt, completed_cnt,
+				aligned_num_blocks << PAGE_SHIFT, socket, 0, 1,
+				0, issued_cnt, completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
 				&cur_loop_dele);
 #else
 			copied += do_nova_nvmm_write(
 				sb, kmem, (void *)(buf + head),
-				aligned_num_blocks << PAGE_SHIFT, 0, socket, 0,
-				1, 0, issued_cnt, completed_cnt,
+				aligned_num_blocks << PAGE_SHIFT, socket, 0, 1,
+				0, issued_cnt, completed_cnt,
 				len >= NOVA_WRITE_WAIT_THRESHOLD, hole_fill,
 				&cur_loop_dele);
 #endif
@@ -1111,26 +1107,25 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				kmem = nova_get_virt_addr_from_offset(
 					inode->i_sb,
 					nova_get_block_off(sb, blocknr_loop,
-							   sih->i_blk_type, 0),
-					0);
-				socket = nova_block_to_socket(
-					sbi, blocknr_loop, sih->i_blk_type, 0);
+							   sih->i_blk_type));
+				socket = nova_block_to_socket(sbi, blocknr_loop,
+							      sih->i_blk_type);
 
 #if NOVA_KERNEL_COPY_USER_BUFFER
 				copied += do_nova_nvmm_write(
 					sb, kmem,
 					(void *)(ubuf_copy + head +
 						 PAGE_SIZE * i),
-					PAGE_SIZE, 0, socket, 0, 1, 0,
-					issued_cnt, completed_cnt,
+					PAGE_SIZE, socket, 0, 1, 0, issued_cnt,
+					completed_cnt,
 					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
 					&cur_loop_dele);
 #else
 				copied += do_nova_nvmm_write(
 					sb, kmem,
 					(void *)(buf + head + PAGE_SIZE * i),
-					PAGE_SIZE, 0, socket, 0, 1, 0,
-					issued_cnt, completed_cnt,
+					PAGE_SIZE, socket, 0, 1, 0, issued_cnt,
+					completed_cnt,
 					len >= NOVA_WRITE_WAIT_THRESHOLD, true,
 					&cur_loop_dele);
 #endif
@@ -1497,7 +1492,7 @@ again:
 	/* Return initialized blocks to the user */
 	allocated = nova_new_data_blocks(sb, sih, &blocknr, iblock, num_blocks,
 					 ALLOC_INIT_ZERO, ANY_CPU,
-					 ALLOC_FROM_HEAD);
+					 ALLOC_FROM_HEAD, -1);
 	if (allocated <= 0) {
 		nova_dbg_verbose("%s alloc blocks failed %d\n", __func__,
 				 allocated);

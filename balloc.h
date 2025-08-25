@@ -1,24 +1,22 @@
 #ifndef __BALLOC_H
 #define __BALLOC_H
 
-struct sub_free_list {
+struct free_list {
 	spinlock_t s_lock;
 	struct rb_root block_free_tree;
 	struct nova_range_node *first_node; // lowest address free range
 	struct nova_range_node *last_node; // highest address free range
 
-	// for meta
+	int cpu; // Which CPU do I belong to?
+
 	/* Where are the data checksum blocks */
 	unsigned long csum_start;
-	unsigned long replica_csum_start;
 	unsigned long num_csum_blocks;
 
 	/* Where are the data parity blocks */
 	unsigned long parity_start;
-	unsigned long replica_parity_start;
 	unsigned long num_parity_blocks;
 
-	// meta and data free list shared
 	/* Start and end of allocatable range, inclusive. Excludes csum and
 	 * parity blocks.
 	 */
@@ -33,17 +31,15 @@ struct sub_free_list {
 	u32 csum; /* Protect integrity */
 
 	/* Statistics */
-	unsigned long alloc_count;
-	unsigned long free_count;
-	unsigned long alloc_pages;
-	unsigned long freed_pages;
-};
+	unsigned long alloc_log_count;
+	unsigned long alloc_data_count;
+	unsigned long free_log_count;
+	unsigned long free_data_count;
+	unsigned long alloc_log_pages;
+	unsigned long alloc_data_pages;
+	unsigned long freed_log_pages;
+	unsigned long freed_data_pages;
 
-/* DRAM structure to hold a list of free PMEM blocks */
-struct free_list {
-	int cpu; // Which CPU do I belong to?
-	struct sub_free_list meta_list;
-	struct sub_free_list data_list;
 	u64 padding[8]; /* Cache line break */
 };
 
@@ -53,31 +49,6 @@ static inline struct free_list *nova_get_free_list(struct super_block *sb,
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 
 	return &sbi->free_lists[cpu];
-}
-
-static inline struct sub_free_list *
-nova_get_data_free_list(struct super_block *sb, int cpu)
-{
-	struct free_list *free_list = nova_get_free_list(sb, cpu);
-
-	return &free_list->data_list;
-}
-
-static inline struct sub_free_list *
-nova_get_meta_free_list(struct super_block *sb, int cpu)
-{
-	struct free_list *free_list = nova_get_free_list(sb, cpu);
-
-	return &free_list->meta_list;
-}
-
-static inline struct sub_free_list *
-nova_get_sub_free_list(struct super_block *sb, int cpu, int meta)
-{
-	if (meta)
-		return nova_get_meta_free_list(sb, cpu);
-	else
-		return nova_get_data_free_list(sb, cpu);
 }
 
 enum nova_alloc_direction { ALLOC_FROM_HEAD = 0, ALLOC_FROM_TAIL = 1 };
@@ -119,12 +90,13 @@ extern int nova_new_data_blocks(struct super_block *sb,
 				struct nova_inode_info_header *sih,
 				unsigned long *blocknr, unsigned long start_blk,
 				unsigned int num, enum nova_alloc_init zero,
-				int cpu, enum nova_alloc_direction from_tail);
+				int cpu, enum nova_alloc_direction from_tail,
+				int socket);
 extern int nova_new_log_blocks(struct super_block *sb,
 			       struct nova_inode_info_header *sih,
 			       unsigned long *blocknr, unsigned int num,
 			       enum nova_alloc_init zero, int cpu,
-			       enum nova_alloc_direction from_tail);
+			       enum nova_alloc_direction from_tail, int socket);
 extern unsigned long nova_count_free_blocks(struct super_block *sb);
 int nova_search_inodetree(struct nova_sb_info *sbi, unsigned long ino,
 			  struct nova_range_node **ret_node);

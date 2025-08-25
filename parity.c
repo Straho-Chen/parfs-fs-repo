@@ -125,7 +125,7 @@ int nova_update_pgoff_parity(struct super_block *sb,
 	if (blockoff == 0)
 		return 0;
 
-	dax_mem = nova_get_virt_addr_from_offset(sb, blockoff, 0);
+	dax_mem = nova_get_virt_addr_from_offset(sb, blockoff);
 
 	blocknr = nova_get_blocknr(sb, blockoff, sih->i_blk_type);
 	nova_update_block_parity(sb, dax_mem, blocknr, zero);
@@ -163,7 +163,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 
 	NOVA_STATS_ADD(block_csum_parity, 1);
 
-	blockoff = nova_get_block_off(sb, blocknr, sih->i_blk_type, 0);
+	blockoff = nova_get_block_off(sb, blocknr, sih->i_blk_type);
 	strp_nr = blockoff >> strp_shift;
 
 	strp_offset = offset & (strp_size - 1);
@@ -224,7 +224,7 @@ int nova_update_block_csum_parity(struct super_block *sb,
 			crc[6] = cpu_to_le32((u32)acc[6]);
 			crc[7] = cpu_to_le32((u32)acc[7]);
 
-			nvmmptr = nova_get_data_csum_addr(sb, strp_nr, 0);
+			nvmmptr = nova_get_data_csum_addr(sb, strp_nr);
 			/* Here is small size writes. We don't call delegation write here. */
 			nova_memunlock_range(sb, nvmmptr, csum_size * 8,
 					     &irq_flags);
@@ -294,8 +294,8 @@ int nova_restore_data(struct super_block *sb, unsigned long blocknr,
 	int ret = 0;
 
 	NOVA_START_TIMING(restore_data_t, restore_time);
-	blockoff = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_4K, 0);
-	blockptr = nova_get_virt_addr_from_offset(sb, blockoff, 0);
+	blockoff = nova_get_block_off(sb, blocknr, NOVA_BLOCK_TYPE_4K);
+	blockptr = nova_get_virt_addr_from_offset(sb, blockoff);
 	stripptr = blockptr + (badstrip_id << strp_shift);
 
 	block = kmalloc(sb->s_blocksize, GFP_KERNEL);
@@ -401,7 +401,7 @@ int nova_update_truncated_block_parity(struct super_block *sb,
 
 	nvmm = nova_find_nvmm_block(sb, sih, NULL, pgoff);
 
-	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm, 0);
+	nvmm_addr = (char *)nova_get_virt_addr_from_offset(sb, nvmm);
 
 	blocknr = nova_get_blocknr(sb, nvmm, btype);
 

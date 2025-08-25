@@ -646,7 +646,7 @@ static int nova_copy_snapshot_list_to_dram(struct super_block *sb,
 	curr_dram_addr = list->head;
 	prev_dram_addr = list->head;
 	curr_nvmm_block = nvmm_list->head;
-	curr_nvmm_addr = nova_get_virt_addr_from_offset(sb, curr_nvmm_block, 1);
+	curr_nvmm_addr = nova_get_virt_addr_from_offset(sb, curr_nvmm_block);
 
 	for (i = 0; i < nvmm_list->num_pages; i++) {
 		/* Leave next_page field alone */
@@ -665,7 +665,7 @@ static int nova_copy_snapshot_list_to_dram(struct super_block *sb,
 		if (curr_nvmm_block < 0)
 			break;
 		curr_nvmm_addr =
-			nova_get_virt_addr_from_offset(sb, curr_nvmm_block, 1);
+			nova_get_virt_addr_from_offset(sb, curr_nvmm_block);
 		curr_dram_addr = dram_page->page_tail.next_page;
 	}
 
@@ -723,7 +723,7 @@ static int nova_restore_snapshot_info_lists(
 	int ret;
 
 	nvmm_page = (struct snapshot_nvmm_page *)nova_get_virt_addr_from_offset(
-		sb, entry->nvmm_page_addr, 1);
+		sb, entry->nvmm_page_addr);
 
 	for (i = 0; i < sbi->cpus; i++) {
 		list = &info->lists[i];
@@ -809,7 +809,7 @@ static int nova_free_nvmm_page(struct super_block *sb, u64 nvmm_page_addr)
 	sih.i_blk_type = NOVA_DEFAULT_BLOCK_TYPE;
 
 	nvmm_page = (struct snapshot_nvmm_page *)nova_get_virt_addr_from_offset(
-		sb, nvmm_page_addr, 1);
+		sb, nvmm_page_addr);
 
 	for (i = 0; i < sbi->cpus; i++) {
 		nvmm_list = &nvmm_page->lists[i];
@@ -1043,7 +1043,7 @@ static int nova_invalidate_snapshot_entry(struct super_block *sb,
 	struct nova_snapshot_info_entry *entry;
 	int ret;
 
-	entry = nova_get_virt_addr_from_offset(sb, info->snapshot_entry, 1);
+	entry = nova_get_virt_addr_from_offset(sb, info->snapshot_entry);
 	ret = nova_invalidate_logentry(sb, entry, SNAPSHOT_INFO, 0);
 	return ret;
 }
@@ -1111,7 +1111,7 @@ static int nova_copy_snapshot_list_to_nvmm(struct super_block *sb,
 	curr_dram_addr = list->head;
 	prev_nvmm_block = new_block;
 	curr_nvmm_block = new_block;
-	curr_nvmm_addr = nova_get_virt_addr_from_offset(sb, curr_nvmm_block, 1);
+	curr_nvmm_addr = nova_get_virt_addr_from_offset(sb, curr_nvmm_block);
 
 	for (i = 0; i < list->num_pages; i++) {
 		/* Leave next_page field alone */
@@ -1126,7 +1126,7 @@ static int nova_copy_snapshot_list_to_nvmm(struct super_block *sb,
 		if (curr_nvmm_block < 0)
 			break;
 		curr_nvmm_addr =
-			nova_get_virt_addr_from_offset(sb, curr_nvmm_block, 1);
+			nova_get_virt_addr_from_offset(sb, curr_nvmm_block);
 		curr_dram_addr = dram_page->page_tail.next_page;
 	}
 
@@ -1168,7 +1168,7 @@ static int nova_save_snapshot_info(struct super_block *sb,
 	}
 
 	nvmm_page = (struct snapshot_nvmm_page *)nova_get_virt_addr_from_offset(
-		sb, nvmm_page_addr, 1);
+		sb, nvmm_page_addr);
 
 	for (i = 0; i < sbi->cpus; i++) {
 		list = &info->lists[i];
@@ -1183,7 +1183,7 @@ static int nova_save_snapshot_info(struct super_block *sb,
 		nova_copy_snapshot_list_to_nvmm(sb, list, nvmm_list, new_block);
 	}
 
-	entry = nova_get_virt_addr_from_offset(sb, info->snapshot_entry, 1);
+	entry = nova_get_virt_addr_from_offset(sb, info->snapshot_entry);
 	nova_set_nvmm_page_addr(sb, entry, nvmm_page_addr);
 
 	return 0;

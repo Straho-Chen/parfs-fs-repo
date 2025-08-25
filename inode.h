@@ -156,7 +156,7 @@ static inline struct nova_inode *nova_get_alter_inode(struct super_block *sb,
 	if (metadata_csum == 0)
 		return NULL;
 
-	addr = nova_get_virt_addr_from_offset(sb, sih->alter_pi_addr, 1);
+	addr = nova_get_virt_addr_from_offset(sb, sih->alter_pi_addr);
 	rc = memcpy_mcsafe(&fake_pi, addr, sizeof(struct nova_inode));
 	if (rc)
 		return NULL;
@@ -303,7 +303,7 @@ static inline struct inode_table *nova_get_inode_table(struct super_block *sb,
 		table_start = INODE_TABLE1_START;
 
 	return (struct inode_table *)((char *)nova_get_virt_addr_from_offset(
-					      sb, PAGE_SIZE * table_start, 1) +
+					      sb, PAGE_SIZE * table_start) +
 				      cpu * CACHELINE_SIZE);
 }
 
@@ -330,7 +330,7 @@ static inline u64 nova_get_alter_reserved_inode_addr(struct super_block *sb,
 {
 	struct nova_sb_info *sbi = NOVA_SB(sb);
 
-	return nova_get_addr_off(sbi, sbi->replica_reserved_inodes_addr, 1) +
+	return nova_get_addr_off(sbi, sbi->replica_reserved_inodes_addr) +
 	       inode_number * NOVA_INODE_SIZE;
 }
 
@@ -342,7 +342,7 @@ static inline struct nova_inode *nova_get_reserved_inode(struct super_block *sb,
 
 	addr = nova_get_reserved_inode_addr(sb, inode_number);
 
-	return (struct nova_inode *)(sbi->meta_start_virt + addr);
+	return (struct nova_inode *)(sbi->start_virt + addr);
 }
 
 static inline struct nova_inode *
@@ -353,7 +353,7 @@ nova_get_alter_reserved_inode(struct super_block *sb, u64 inode_number)
 
 	addr = nova_get_alter_reserved_inode_addr(sb, inode_number);
 
-	return (struct nova_inode *)(sbi->meta_start_virt + addr);
+	return (struct nova_inode *)(sbi->start_virt + addr);
 }
 
 /* If this is part of a read-modify-write of the inode metadata,
@@ -377,7 +377,7 @@ static inline struct nova_inode *nova_get_inode(struct super_block *sb,
 	void *addr;
 	int rc;
 
-	addr = nova_get_virt_addr_from_offset(sb, sih->pi_addr, 1);
+	addr = nova_get_virt_addr_from_offset(sb, sih->pi_addr);
 	rc = memcpy_mcsafe(&fake_pi, addr, sizeof(struct nova_inode));
 	if (rc)
 		return NULL;

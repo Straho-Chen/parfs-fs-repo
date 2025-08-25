@@ -47,15 +47,15 @@ int nova_block_symlink(struct super_block *sb, struct nova_inode *pi,
 
 	allocated = nova_new_data_blocks(sb, sih, &name_blocknr, 0, 1,
 					 ALLOC_INIT_ZERO, ANY_CPU,
-					 ALLOC_FROM_TAIL);
+					 ALLOC_FROM_TAIL, -1);
 	if (allocated != 1 || name_blocknr == 0) {
 		ret = allocated;
 		return ret;
 	}
 
 	/* First copy name to name block */
-	block = nova_get_block_off(sb, name_blocknr, sih->i_blk_type, 0);
-	blockp = (char *)nova_get_virt_addr_from_offset(sb, block, 0);
+	block = nova_get_block_off(sb, name_blocknr, sih->i_blk_type);
+	blockp = (char *)nova_get_virt_addr_from_offset(sb, block);
 
 	nova_memunlock_block(sb, blockp, &irq_flags);
 	memcpy_to_pmem_nocache(blockp, symname, len);
@@ -112,7 +112,7 @@ static int nova_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 	char *blockp;
 
 	entry = (struct nova_file_write_entry *)nova_get_virt_addr_from_offset(
-		sb, sih->log_head, 1);
+		sb, sih->log_head);
 
 	if (metadata_csum == 0)
 		entryc = entry;
@@ -123,10 +123,8 @@ static int nova_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 	}
 
 	blockp = (char *)nova_get_virt_addr_from_offset(
-		sb,
-		BLOCK_OFF(nova_get_block_off(sb, entry->blocknr,
-					     sih->i_blk_type, 0)),
-		0);
+		sb, BLOCK_OFF(nova_get_block_off(sb, entry->blocknr,
+						 sih->i_blk_type)));
 
 	return nova_readlink_copy(buffer, buflen, blockp);
 }
@@ -142,7 +140,7 @@ static const char *nova_get_link(struct dentry *dentry, struct inode *inode,
 	char *blockp;
 
 	entry = (struct nova_file_write_entry *)nova_get_virt_addr_from_offset(
-		sb, sih->log_head, 1);
+		sb, sih->log_head);
 	if (metadata_csum == 0)
 		entryc = entry;
 	else {
@@ -152,10 +150,8 @@ static const char *nova_get_link(struct dentry *dentry, struct inode *inode,
 	}
 
 	blockp = (char *)nova_get_virt_addr_from_offset(
-		sb,
-		BLOCK_OFF(nova_get_block_off(sb, entry->blocknr,
-					     sih->i_blk_type, 0)),
-		0);
+		sb, BLOCK_OFF(nova_get_block_off(sb, entry->blocknr,
+						 sih->i_blk_type)));
 
 	return blockp;
 }

@@ -115,7 +115,7 @@ static int nova_update_entry_pfn(struct super_block *sb,
 
 	addr = vma->vm_start + ((start_pgoff - vma->vm_pgoff) << PAGE_SHIFT);
 	pfn = nova_get_pfn(sb, nova_get_block_off(sb, entry->blocknr,
-						  sih->i_blk_type, 0)) +
+						  sih->i_blk_type)) +
 	      start_pgoff - entry->pgoff;
 	size = num_pages << PAGE_SHIFT;
 
@@ -186,7 +186,7 @@ static int nova_dax_cow_mmap_handler(struct super_block *sb,
 		}
 
 		entry = (struct nova_file_write_entry *)
-			nova_get_virt_addr_from_offset(sb, curr_p, 1);
+			nova_get_virt_addr_from_offset(sb, curr_p);
 
 		if (metadata_csum == 0)
 			entryc = entry;
@@ -344,9 +344,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 
 		from_blocknr = get_nvmm(sb, sih, entryc, start_blk);
 		from_blockoff =
-			nova_get_block_off(sb, from_blocknr, pi->i_blk_type, 0);
-		from_kmem =
-			nova_get_virt_addr_from_offset(sb, from_blockoff, 0);
+			nova_get_block_off(sb, from_blocknr, pi->i_blk_type);
+		from_kmem = nova_get_virt_addr_from_offset(sb, from_blockoff);
 
 		if (entryc->reassigned == 0)
 			avail_blocks =
@@ -359,7 +358,7 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 
 		allocated = nova_new_data_blocks(sb, sih, &blocknr, start_blk,
 						 avail_blocks, ALLOC_NO_INIT,
-						 ANY_CPU, ALLOC_FROM_HEAD);
+						 ANY_CPU, ALLOC_FROM_HEAD, -1);
 
 		nova_dbg_verbose("%s: alloc %d blocks @ %#lx\n", __func__,
 				 allocated, blocknr);
@@ -371,9 +370,8 @@ int nova_mmap_to_new_blocks(struct vm_area_struct *vma, unsigned long address)
 			goto out;
 		}
 
-		to_blockoff =
-			nova_get_block_off(sb, blocknr, pi->i_blk_type, 0);
-		to_kmem = nova_get_virt_addr_from_offset(sb, to_blockoff, 0);
+		to_blockoff = nova_get_block_off(sb, blocknr, pi->i_blk_type);
+		to_kmem = nova_get_virt_addr_from_offset(sb, to_blockoff);
 		entry_pgoff = start_blk;
 
 		copy_blocks = allocated;
