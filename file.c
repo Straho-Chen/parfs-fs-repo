@@ -899,6 +899,25 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		if (bytes > count)
 			bytes = count;
 
+		// we do data csum on cow write, no need is_dele check
+		if (is_dele && (data_csum > 0 || data_parity > 0)) {
+			/* calculate data checksum and write csum to pmem */
+			NOVA_START_META_TIMING(bd_data_csum_t,
+					       bd_data_csum_time);
+#if NOVA_KERNEL_COPY_USER_BUFFER
+			ret = nova_protect_file_data(sb, inode, pos, bytes,
+						     ubuf_copy, blocknr);
+#else
+			ret = nova_protect_file_data(sb, inode, pos, bytes,
+						     (char *)buf, blocknr);
+#endif
+			PERSISTENT_BARRIER();
+			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
+			meta_written += nova_write_csum_size(sb, bytes);
+			if (ret)
+				goto out;
+		}
+
 		head = tail = 0;
 		if (offset || ((offset + bytes) & (PAGE_SIZE - 1)) != 0) {
 			/*
@@ -1014,24 +1033,6 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 			blocknr -= 1;
 		}
 		copied = bytes;
-
-		// we do data csum on cow write, no need is_dele check
-		if (is_dele && (data_csum > 0 || data_parity > 0)) {
-			/* calculate data checksum and write csum to pmem */
-			NOVA_START_META_TIMING(bd_data_csum_t,
-					       bd_data_csum_time);
-#if NOVA_KERNEL_COPY_USER_BUFFER
-			ret = nova_protect_file_data(sb, inode, pos, bytes,
-						     ubuf_copy, blocknr);
-#else
-			ret = nova_protect_file_data(sb, inode, pos, bytes,
-						     (char *)buf, blocknr);
-#endif
-			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
-			meta_written += nova_write_csum_size(sb, bytes);
-			if (ret)
-				goto out;
-		}
 
 		if (pos + copied > inode->i_size)
 			file_size = cpu_to_le64(pos + copied);
