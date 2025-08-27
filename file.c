@@ -909,6 +909,10 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		ret = nova_protect_file_data(sb, inode, pos, bytes, (char *)buf,
 					     blocknr);
 #endif
+		nova_init_file_write_entry(sb, sih, &entry_data, epoch_id,
+					   start_blk, allocated, blocknr, time,
+					   file_size);
+		nova_update_entry_csum(&entry_data);
 		PERSISTENT_BARRIER();
 		NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
 		meta_written += nova_write_csum_size(sb, bytes);
