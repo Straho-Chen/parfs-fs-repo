@@ -169,10 +169,13 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		if (!append) {
 			/* copy [start, offset] from old block(or fill 0) to new cow block */
 			entry = nova_get_write_entry(sb, sih, start_blk);
+			inner_is_dele = false;
 			ret = nova_handle_partial_block(
 				sb, sih, entry, start_blk, 0, kmem, offset,
 				socket, issued_cnt, completed_cnt, try_do_dele,
 				&inner_is_dele);
+			if (inner_is_dele)
+				*is_dele = true;
 			if (ret < 0)
 				return ret;
 		}
@@ -187,11 +190,14 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		} else {
 			bytes = count;
 		}
+		inner_is_dele = false;
 		ret = do_nova_nvmm_write(sb, kmem + offset,
 					 (void *)(ubuf_copy + ubuf_off), bytes,
 					 0, socket, 0, support_clwb, 0,
 					 issued_cnt, completed_cnt, 0,
 					 try_do_dele, &inner_is_dele);
+		if (inner_is_dele)
+			*is_dele = true;
 		if (ret < 0)
 			return ret;
 
@@ -218,11 +224,14 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 					 __func__);
 			nova_dbg_verbose("%s: ubuf_off: %lu\n", __func__,
 					 ubuf_off);
+			inner_is_dele = false;
 			ret = do_nova_nvmm_write(sb, kmem, ubuf_copy + ubuf_off,
 						 eblk_offset, 0, socket, 0,
 						 support_clwb, 0, issued_cnt,
 						 completed_cnt, 0, try_do_dele,
 						 &inner_is_dele);
+			if (inner_is_dele)
+				*is_dele = true;
 			if (ret < 0)
 				return ret;
 
@@ -231,20 +240,20 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		if (!append) {
 			/* copy [end, blk_end] from old block(or fill 0) to new cow block */
 			entry = nova_get_write_entry(sb, sih, end_blk);
+			inner_is_dele = false;
 			ret = nova_handle_partial_block(
 				sb, sih, entry, end_blk, eblk_offset, kmem,
 				data_block_size - eblk_offset, socket,
 				issued_cnt, completed_cnt, try_do_dele,
 				&inner_is_dele);
+			if (inner_is_dele)
+				*is_dele = true;
 
 			if (ret < 0)
 				return ret;
 		}
 	}
 	NOVA_END_TIMING(partial_block_t, partial_time);
-	if (inner_is_dele && is_dele) {
-		*is_dele = true;
-	}
 
 	return ret;
 }
