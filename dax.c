@@ -169,10 +169,13 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		if (!append) {
 			/* copy [start, offset] from old block(or fill 0) to new cow block */
 			entry = nova_get_write_entry(sb, sih, start_blk);
+			inner_is_dele = false;
 			ret = nova_handle_partial_block(
 				sb, sih, entry, start_blk, 0, kmem, offset,
 				socket, issued_cnt, completed_cnt, try_do_dele,
 				&inner_is_dele);
+			if (inner_is_dele)
+				*is_dele = true;
 			if (ret < 0)
 				return ret;
 		}
@@ -187,11 +190,14 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		} else {
 			bytes = count;
 		}
+		inner_is_dele = false;
 		ret = do_nova_nvmm_write(sb, kmem + offset,
 					 (void *)(ubuf_copy + ubuf_off), bytes,
 					 0, socket, 0, support_clwb, 0,
 					 issued_cnt, completed_cnt, 0,
 					 try_do_dele, &inner_is_dele);
+		if (inner_is_dele)
+			*is_dele = true;
 		if (ret < 0)
 			return ret;
 
@@ -218,11 +224,14 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 					 __func__);
 			nova_dbg_verbose("%s: ubuf_off: %lu\n", __func__,
 					 ubuf_off);
+			inner_is_dele = false;
 			ret = do_nova_nvmm_write(sb, kmem, ubuf_copy + ubuf_off,
 						 eblk_offset, 0, socket, 0,
 						 support_clwb, 0, issued_cnt,
 						 completed_cnt, 0, try_do_dele,
 						 &inner_is_dele);
+			if (inner_is_dele)
+				*is_dele = true;
 			if (ret < 0)
 				return ret;
 
@@ -231,20 +240,20 @@ int nova_handle_head_tail_blocks(struct super_block *sb, struct inode *inode,
 		if (!append) {
 			/* copy [end, blk_end] from old block(or fill 0) to new cow block */
 			entry = nova_get_write_entry(sb, sih, end_blk);
+			inner_is_dele = false;
 			ret = nova_handle_partial_block(
 				sb, sih, entry, end_blk, eblk_offset, kmem,
 				data_block_size - eblk_offset, socket,
 				issued_cnt, completed_cnt, try_do_dele,
 				&inner_is_dele);
+			if (inner_is_dele)
+				*is_dele = true;
 
 			if (ret < 0)
 				return ret;
 		}
 	}
 	NOVA_END_TIMING(partial_block_t, partial_time);
-	if (inner_is_dele && is_dele) {
-		*is_dele = true;
-	}
 
 	return ret;
 }
@@ -527,7 +536,7 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 	}
 
 aligned_copy:
-	while (count > blocksize) {
+	while (count >= blocksize) {
 		/* calculate and write checksum of blockbuf in a block granularity */
 #if NOVA_KERNEL_COPY_USER_BUFFER
 		nova_update_block_csum(sb, blocksize, blocknr, ubuf_copy, 0);
@@ -843,6 +852,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 	struct nova_inode_update update;
 	char *ubuf_copy, *ubuf_copy_src = NULL;
 	ssize_t written = 0;
+	ssize_t meta_written = 0;
 	loff_t pos;
 	size_t count, offset, copied;
 	unsigned long start_blk, num_blocks, ent_blks = 0;
@@ -1145,32 +1155,32 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 		}
 		copied = bytes;
 
-// 		if (cur_loop_dele) {
-// 			nova_dbg_verbose(
-// 				"%s: cal data csum, pos: %llu, len: %lu\n",
-// 				__func__, pos, len);
-// 			// partial write is sync we don't need to calculate checksum
-// 			if (data_csum > 0 || data_parity > 0) {
-// 				/* calculate data checksum and write csum to pmem */
-// 				NOVA_START_META_TIMING(bd_data_csum_t,
-// 						       bd_data_csum_time);
-// #if NOVA_KERNEL_COPY_USER_BUFFER
-// 				ret = nova_protect_file_data(
-// 					sb, inode, pos,
-// 					aligned_num_blocks << PAGE_SHIFT,
-// 					ubuf_copy + head, blocknr);
-// #else
-// 				ret = nova_protect_file_data(
-// 					sb, inode, pos,
-// 					aligned_num_blocks << PAGE_SHIFT,
-// 					(char *)(buf + head), blocknr);
-// #endif
-// 				NOVA_END_META_TIMING(bd_data_csum_t,
-// 						     bd_data_csum_time);
-// 				if (ret)
-// 					goto out;
-// 			}
-// 		}
+		// 		if (cur_loop_dele) {
+		// 			nova_dbg_verbose(
+		// 				"%s: cal data csum, pos: %llu, len: %lu\n",
+		// 				__func__, pos, len);
+		// 			// partial write is sync we don't need to calculate checksum
+		// 			if (data_csum > 0 || data_parity > 0) {
+		// 				/* calculate data checksum and write csum to pmem */
+		// 				NOVA_START_META_TIMING(bd_data_csum_t,
+		// 						       bd_data_csum_time);
+		// #if NOVA_KERNEL_COPY_USER_BUFFER
+		// 				ret = nova_protect_file_data(
+		// 					sb, inode, pos,
+		// 					aligned_num_blocks << PAGE_SHIFT,
+		// 					ubuf_copy + head, blocknr);
+		// #else
+		// 				ret = nova_protect_file_data(
+		// 					sb, inode, pos,
+		// 					aligned_num_blocks << PAGE_SHIFT,
+		// 					(char *)(buf + head), blocknr);
+		// #endif
+		// 				NOVA_END_META_TIMING(bd_data_csum_t,
+		// 						     bd_data_csum_time);
+		// 				if (ret)
+		// 					goto out;
+		// 			}
+		// 		}
 
 		// restore blocknr
 		if (head) {
@@ -1204,6 +1214,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 			NOVA_END_META_TIMING(bd_meta_write_t,
 					     bd_meta_write_time);
 
+			meta_written += sizeof(struct nova_file_write_entry);
 			if (ret) {
 				nova_dbg("%s: append inode entry failed\n",
 					 __func__);
@@ -1236,6 +1247,7 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				// TODO: file_size might be changed to the [pgoff, pgoff+size]
 				entry->size = file_size;
 				nova_flush_buffer(&entry->size, sizeof(u64), 1);
+				meta_written += sizeof(u64);
 			} else {
 				// otherwise, start a transaction
 				entry_info.type = FILE_WRITE;
@@ -1246,6 +1258,8 @@ ssize_t do_nova_inplace_file_write(struct file *filp, const char __user *buf,
 				entry_info.inplace = 1;
 				nova_inplace_update_write_entry(
 					sb, inode, entry, &entry_info);
+				meta_written +=
+					sizeof(struct nova_file_write_entry);
 			}
 			NOVA_END_META_TIMING(bd_meta_write_t,
 					     bd_meta_write_time);
@@ -1342,6 +1356,7 @@ out:
 	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(inplace_write_t, inplace_write_time);
 	NOVA_STATS_ADD(inplace_write_bytes, written);
+	NOVA_STATS_ADD(inplace_meta_write_bytes, meta_written);
 
 	if (ubuf_copy_src)
 		kfree(ubuf_copy_src);

@@ -874,6 +874,18 @@ static inline int is_dir_init_entry(struct super_block *sb,
 #include "balloc.h" // remove once we move the following functions away
 
 /* Checksum methods */
+static inline u64 nova_write_csum_size(struct super_block *sb, u64 size)
+{
+	u64 csum_size = 0;
+#if NOVA_XXHASH_CSUM
+	// each csum is 8 bytes
+	csum_size = (size >> NOVA_STRIPE_SHIFT) << 3;
+#else
+	// each csum is 4 bytes
+	csum_size = (size >> NOVA_STRIPE_SHIFT) << 2;
+#endif
+	return csum_size;
+}
 static inline void *nova_get_data_csum_addr(struct super_block *sb, u64 blocknr,
 					    int replica)
 {

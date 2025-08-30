@@ -449,6 +449,9 @@ static int nova_append_log_entry(struct super_block *sb, struct nova_inode *pi,
 	update->curr_entry = curr_p;
 	update->tail = curr_p + size;
 
+	memset(nova_get_virt_addr_from_offset(sb, update->tail, 1), 0,
+	       sizeof(u8));
+
 	if (metadata_csum) {
 		alter_curr_p = nova_get_append_head(sb, pi, pic, sih,
 						    alter_tail, size, ALTER_LOG,

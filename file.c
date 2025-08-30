@@ -742,6 +742,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 	struct nova_inode_update update;
 	char *ubuf_copy, *ubuf_copy_src = NULL;
 	ssize_t written = 0;
+	ssize_t meta_written = 0;
 	loff_t pos;
 	size_t count, offset, copied;
 	unsigned long start_blk, num_blocks;
@@ -1015,21 +1016,21 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		copied = bytes;
 
 		// we do data csum on cow write, no need is_dele check
-// 		if (is_dele && (data_csum > 0 || data_parity > 0)) {
-// 			/* calculate data checksum and write csum to pmem */
-// 			NOVA_START_META_TIMING(bd_data_csum_t,
-// 					       bd_data_csum_time);
-// #if NOVA_KERNEL_COPY_USER_BUFFER
-// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
-// 						     ubuf_copy, blocknr);
-// #else
-// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
-// 						     (char *)buf, blocknr);
-// #endif
-// 			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
-// 			if (ret)
-// 				goto out;
-// 		}
+		// 		if (is_dele && (data_csum > 0 || data_parity > 0)) {
+		// 			/* calculate data checksum and write csum to pmem */
+		// 			NOVA_START_META_TIMING(bd_data_csum_t,
+		// 					       bd_data_csum_time);
+		// #if NOVA_KERNEL_COPY_USER_BUFFER
+		// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
+		// 						     ubuf_copy, blocknr);
+		// #else
+		// 			ret = nova_protect_file_data(sb, inode, pos, bytes,
+		// 						     (char *)buf, blocknr);
+		// #endif
+		// 			NOVA_END_META_TIMING(bd_data_csum_t, bd_data_csum_time);
+		// 			if (ret)
+		// 				goto out;
+		// 		}
 
 		if (pos + copied > inode->i_size)
 			file_size = cpu_to_le64(pos + copied);
@@ -1063,6 +1064,7 @@ static ssize_t do_nova_cow_file_write(struct file *filp, const char __user *buf,
 		if (copied > 0) {
 			status = copied;
 			written += copied;
+			meta_written += sizeof(struct nova_file_write_entry);
 			pos += copied;
 #if NOVA_KERNEL_COPY_USER_BUFFER
 			ubuf_copy += copied;
@@ -1150,6 +1152,7 @@ out:
 	NOVA_END_META_TIMING(bd_cow_write_t, bd_write_time);
 	NOVA_END_TIMING(do_cow_write_t, cow_write_time);
 	NOVA_STATS_ADD(cow_write_bytes, written);
+	NOVA_STATS_ADD(cow_meta_write_bytes, meta_written);
 	if (ubuf_copy_src)
 		kfree(ubuf_copy_src);
 

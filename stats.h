@@ -208,7 +208,9 @@ enum stats_category {
 	cow_write_breaks,
 	inplace_write_breaks,
 	read_bytes,
+	cow_meta_write_bytes,
 	cow_write_bytes,
+	inplace_meta_write_bytes,
 	inplace_write_bytes,
 	fast_checked_pages,
 	thorough_checked_pages,
@@ -250,6 +252,11 @@ static inline void mem_fence(void)
 {
 	asm volatile("mfence\n" : :);
 }
+
+#define NOVA_IO_ADD(name, value)                           \
+	{                                                  \
+		__this_cpu_add(IOsum_percpu[name], value); \
+	}
 
 #define NOVA_START_TIMING(name, start)          \
 	{                                       \

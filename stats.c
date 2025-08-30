@@ -279,6 +279,10 @@ static void nova_print_IO_stats(struct super_block *sb)
 			IOstats[inplace_write_breaks] /
 				Countstats[inplace_write_t] :
 			0);
+	nova_info("Total data_write_bytes %llu, meta_write_bytes %llu\n",
+		  IOstats[cow_write_bytes] + IOstats[inplace_write_bytes],
+		  IOstats[cow_meta_write_bytes] +
+			  IOstats[inplace_meta_write_bytes]);
 }
 
 static void nova_print_meta_stats(struct super_block *sb)
@@ -288,7 +292,8 @@ static void nova_print_meta_stats(struct super_block *sb)
 	nova_info("write_data_csum: %llu\n", Timingmetastats[bd_data_csum_t]);
 	nova_info("write_meta: %llu\n", Timingmetastats[bd_meta_write_t]);
 	nova_info("write_comu: %llu\n", Timingmetastats[bd_comu_t]);
-	nova_info("write_complete: %llu\n", Timingmetastats[bd_wait_complete_t]);
+	nova_info("write_complete: %llu\n",
+		  Timingmetastats[bd_wait_complete_t]);
 	nova_info("write_sync_data: %llu\n", Timingmetastats[bd_sync_data_t]);
 	nova_info("write_data: %llu\n",
 		  Timingmetastats[bd_cow_write_t] - Timingmetastats[bd_comu_t]);
