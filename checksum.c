@@ -683,11 +683,6 @@ copy:
 		nova_memunlock_range(sb, csum_addr, NOVA_DATA_CSUM_LEN * 8,
 				     &irq_flags);
 		if (support_clwb) {
-			for (int i = 0; i < 8; i++) {
-				nova_dbg_verbose(
-					"%s: blocknr: %#lx, strip %d, data csum: 0x%08x\n",
-					__func__, blocknr, i, crc[i]);
-			}
 			memcpy(csum_addr, src_addr, NOVA_DATA_CSUM_LEN * 8);
 		} else {
 			memcpy_to_pmem_nocache(csum_addr, src_addr,
