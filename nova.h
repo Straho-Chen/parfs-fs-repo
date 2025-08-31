@@ -1016,6 +1016,7 @@ static inline size_t do_nova_nvmm_write(struct super_block *sb, void *kmem_dest,
 			*is_dele = false;
 		NOVA_END_META_TIMING(bd_sync_data_t, memcpy_time);
 		NOVA_END_TIMING(memcpy_w_nvmm_t, memcpy_time);
+		NOVA_STATS_ADD(sync_data_bytes, bytes);
 	} else {
 		nova_dbg_verbose("do delegation\n");
 		NOVA_START_TIMING(do_delegation_w_t, delegation_time);

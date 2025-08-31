@@ -283,6 +283,10 @@ static void nova_print_IO_stats(struct super_block *sb)
 		  IOstats[cow_write_bytes] + IOstats[inplace_write_bytes],
 		  IOstats[cow_meta_write_bytes] +
 			  IOstats[inplace_meta_write_bytes]);
+	nova_info("sync_data_bytes %llu, async_data_bytes %llu\n",
+		  IOstats[sync_data_bytes],
+		  IOstats[cow_write_bytes] + IOstats[inplace_write_bytes] -
+			  IOstats[sync_data_bytes]);
 }
 
 static void nova_print_meta_stats(struct super_block *sb)
