@@ -226,6 +226,7 @@ enum stats_category {
 	dax_new_blocks,
 	inplace_new_blocks,
 	fdatasync,
+	sync_data_bytes,
 
 	/* Sentinel */
 	STATS_NUM,
