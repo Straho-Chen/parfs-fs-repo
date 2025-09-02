@@ -529,7 +529,7 @@ int nova_protect_file_data(struct super_block *sb, struct inode *inode,
 	}
 
 aligned_copy:
-	while (count > blocksize) {
+	while (count >= blocksize) {
 		/* calculate and write checksum of blockbuf in a block granularity */
 #if NOVA_KERNEL_COPY_USER_BUFFER
 		nova_update_block_csum(sb, blocksize, blocknr, ubuf_copy, 0);
